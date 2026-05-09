@@ -103,7 +103,7 @@ router.patch('/:classId/:topicId', auth, authorize('teacher'), validate(updateTo
   }
 });
 
-// DELETE /api/classes/:classId/topics/:topicId
+// DELETE /api/classes/:classId/topics/:topicId — Fix #21: cascade delete
 router.delete('/:classId/:topicId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const topic = await Topic.findByIdAndDelete(req.params.topicId);
@@ -111,6 +111,25 @@ router.delete('/:classId/:topicId', auth, authorize('teacher'), async (req: Auth
       res.status(404).json({ message: 'Topic not found' });
       return;
     }
+
+    // Cascade delete quizzes and all sub-resources
+    const quizzes = await Quiz.find({ topicId: topic._id });
+    const quizIds = quizzes.map((q) => q._id);
+
+    if (quizIds.length > 0) {
+      const { Attempt } = await import('../models/Attempt.js');
+      const { Answer } = await import('../models/Answer.js');
+      const { Question } = await import('../models/Question.js');
+
+      const attempts = await Attempt.find({ quizId: { $in: quizIds } });
+      const attemptIds = attempts.map((a) => a._id);
+
+      await Answer.deleteMany({ attemptId: { $in: attemptIds } });
+      await Attempt.deleteMany({ quizId: { $in: quizIds } });
+      await Question.deleteMany({ quizId: { $in: quizIds } });
+      await Quiz.deleteMany({ topicId: topic._id });
+    }
+
     await TeacherAssignment.deleteMany({ topicId: topic._id });
     res.json({ message: 'Topic deleted successfully' });
   } catch (error) {

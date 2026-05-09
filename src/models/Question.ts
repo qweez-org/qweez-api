@@ -34,4 +34,6 @@ const questionSchema = new Schema<IQuestion>(
   { timestamps: true }
 );
 
+questionSchema.index({ quizId: 1, order: 1 });
+
 export const Question = mongoose.model<IQuestion>('Question', questionSchema);

@@ -3,7 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface INotification extends Document {
   _id: mongoose.Types.ObjectId;
   userId: mongoose.Types.ObjectId;
-  type: 'join_approved' | 'join_rejected' | 'quiz_new' | 'quiz_open' | 'quiz_closed' | 'quiz_result' | 'live_quiz' | 'live_quiz_finished';
+  type: 'join_request' | 'join_approved' | 'join_rejected' | 'quiz_new' | 'quiz_open' | 'quiz_closed' | 'quiz_result' | 'live_quiz' | 'live_quiz_finished';
   title: string;
   message: string;
   classId?: mongoose.Types.ObjectId;
@@ -19,7 +19,7 @@ const notificationSchema = new Schema<INotification>(
     type: {
       type: String,
       required: true,
-      enum: ['join_approved', 'join_rejected', 'quiz_new', 'quiz_open', 'quiz_closed', 'quiz_result', 'live_quiz', 'live_quiz_finished'],
+      enum: ['join_request', 'join_approved', 'join_rejected', 'quiz_new', 'quiz_open', 'quiz_closed', 'quiz_result', 'live_quiz', 'live_quiz_finished'],
     },
     title: { type: String, required: true },
     message: { type: String, required: true },

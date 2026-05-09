@@ -47,7 +47,7 @@ router.post('/', auth, validate(joinRequestSchema), async (req: AuthRequest, res
     // Notify class owner
     await Notification.create({
       userId: cls.owner,
-      type: 'quiz_new', // reusing type, could be 'join_request'
+      type: 'join_request',
       title: 'Permintaan bergabung baru',
       message: `${req.user!.name} ingin bergabung ke kelas ${cls.name}`,
       classId: cls._id,

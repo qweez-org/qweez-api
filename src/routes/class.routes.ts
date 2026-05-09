@@ -117,7 +117,7 @@ router.patch('/:classId', auth, authorize('teacher'), validate(updateClassSchema
   }
 });
 
-// DELETE /api/classes/:classId
+// DELETE /api/classes/:classId — Fix #20: full cascade delete
 router.delete('/:classId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const cls = await Class.findOneAndDelete({ _id: req.params.classId, owner: req.user!._id });
@@ -125,7 +125,33 @@ router.delete('/:classId', auth, authorize('teacher'), async (req: AuthRequest, 
       res.status(404).json({ message: 'Class not found or unauthorized' });
       return;
     }
-    // Cascade delete memberships and topics
+
+    // Get all topics in the class
+    const topics = await Topic.find({ classId: cls._id });
+    const topicIds = topics.map((t) => t._id);
+
+    // Get all quizzes under those topics
+    const { Quiz } = await import('../models/Quiz.js');
+    const { Question } = await import('../models/Question.js');
+    const { Attempt } = await import('../models/Attempt.js');
+    const { Answer } = await import('../models/Answer.js');
+    const { TeacherAssignment } = await import('../models/TeacherAssignment.js');
+    const { Notification } = await import('../models/Notification.js');
+
+    const quizzes = await Quiz.find({ topicId: { $in: topicIds } });
+    const quizIds = quizzes.map((q) => q._id);
+
+    // Get all attempts under those quizzes
+    const attempts = await Attempt.find({ quizId: { $in: quizIds } });
+    const attemptIds = attempts.map((a) => a._id);
+
+    // Cascade delete (bottom-up)
+    await Answer.deleteMany({ attemptId: { $in: attemptIds } });
+    await Attempt.deleteMany({ quizId: { $in: quizIds } });
+    await Question.deleteMany({ quizId: { $in: quizIds } });
+    await Quiz.deleteMany({ topicId: { $in: topicIds } });
+    await TeacherAssignment.deleteMany({ classId: cls._id });
+    await Notification.deleteMany({ classId: cls._id });
     await Membership.deleteMany({ classId: cls._id });
     await Topic.deleteMany({ classId: cls._id });
 

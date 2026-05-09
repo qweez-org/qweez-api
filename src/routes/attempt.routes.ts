@@ -4,6 +4,9 @@ import { Attempt } from '../models/Attempt.js';
 import { Answer } from '../models/Answer.js';
 import { Quiz } from '../models/Quiz.js';
 import { Question } from '../models/Question.js';
+import { Topic } from '../models/Topic.js';
+import { Class } from '../models/Class.js';
+import { Membership } from '../models/Membership.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { scoreAttempt } from '../utils/scoring.js';
@@ -59,7 +62,7 @@ router.post('/quizzes/:quizId/start', auth, async (req: AuthRequest, res: Respon
   }
 });
 
-// GET /api/attempts/:attemptId
+// GET /api/attempts/:attemptId — Fix #5: ownership check
 router.get('/:attemptId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const attempt = await Attempt.findById(req.params.attemptId)
@@ -71,6 +74,15 @@ router.get('/:attemptId', auth, async (req: AuthRequest, res: Response): Promise
       return;
     }
 
+    // Students can only see their own attempts; teachers can see any in their classes
+    if (req.user!.role === 'student') {
+      if (attempt.userId && (attempt.userId as any)._id?.toString() !== req.user!._id.toString() &&
+          attempt.userId?.toString() !== req.user!._id.toString()) {
+        res.status(403).json({ message: 'Access denied' });
+        return;
+      }
+    }
+
     const answers = await Answer.find({ attemptId: attempt._id });
     res.json({ attempt, answers });
   } catch (error) {
@@ -78,7 +90,7 @@ router.get('/:attemptId', auth, async (req: AuthRequest, res: Response): Promise
   }
 });
 
-// PUT /api/attempts/:attemptId/answers — save/update answers
+// PUT /api/attempts/:attemptId/answers — Fix #6: ownership check
 const saveAnswersSchema = Joi.object({
   answers: Joi.array().items(
     Joi.object({
@@ -93,6 +105,12 @@ router.put('/:attemptId/answers', auth, validate(saveAnswersSchema), async (req:
     const attempt = await Attempt.findById(req.params.attemptId);
     if (!attempt || attempt.status !== 'in_progress') {
       res.status(400).json({ message: 'Attempt not found or already submitted' });
+      return;
+    }
+
+    // Fix #6: Only the attempt owner can save answers
+    if (attempt.userId.toString() !== req.user!._id.toString()) {
+      res.status(403).json({ message: 'Access denied' });
       return;
     }
 
@@ -134,12 +152,18 @@ router.put('/:attemptId/answers', auth, validate(saveAnswersSchema), async (req:
   }
 });
 
-// POST /api/attempts/:attemptId/submit
+// POST /api/attempts/:attemptId/submit — Fix #6: ownership check
 router.post('/:attemptId/submit', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const attempt = await Attempt.findById(req.params.attemptId);
     if (!attempt || attempt.status !== 'in_progress') {
       res.status(400).json({ message: 'Attempt not found or already submitted' });
+      return;
+    }
+
+    // Fix #6: Only the attempt owner can submit
+    if (attempt.userId.toString() !== req.user!._id.toString()) {
+      res.status(403).json({ message: 'Access denied' });
       return;
     }
 
@@ -163,13 +187,28 @@ router.post('/:attemptId/submit', auth, async (req: AuthRequest, res: Response):
   }
 });
 
-// GET /api/attempts — list user's attempts (with filters)
+// GET /api/attempts — Fix #7: restrict teacher scope to their classes
 router.get('/', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const filter: any = {};
 
     if (req.user!.role === 'student') {
       filter.userId = req.user!._id;
+    } else if (req.user!.role === 'teacher') {
+      // Teachers can only see attempts for quizzes in classes they own or co-teach
+      const ownedClasses = await Class.find({ owner: req.user!._id });
+      const coTeachMemberships = await Membership.find({
+        userId: req.user!._id, role: 'co-teacher', status: 'approved',
+      });
+      const allClassIds = [
+        ...ownedClasses.map((c) => c._id),
+        ...coTeachMemberships.map((m) => m.classId),
+      ];
+      const topics = await Topic.find({ classId: { $in: allClassIds } });
+      const topicIds = topics.map((t) => t._id);
+      const quizzes = await Quiz.find({ topicId: { $in: topicIds } });
+      const quizIds = quizzes.map((q) => q._id);
+      filter.quizId = { $in: quizIds };
     }
 
     if (req.query.quizId) filter.quizId = req.query.quizId;
@@ -177,7 +216,8 @@ router.get('/', auth, async (req: AuthRequest, res: Response): Promise<void> => 
     const attempts = await Attempt.find(filter)
       .populate('quizId', 'title duration topicId')
       .populate('userId', 'name email')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .limit(100);
 
     res.json({ attempts });
   } catch (error) {

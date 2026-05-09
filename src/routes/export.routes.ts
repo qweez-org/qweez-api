@@ -9,6 +9,20 @@ import { authorize } from '../middleware/authorize.js';
 
 const router = Router();
 
+// Fix #34: Sanitize CSV cell values to prevent formula injection
+function sanitizeCsvCell(value: string | number | null | undefined): string {
+  const str = String(value ?? '');
+  // Escape values that start with formula-triggering characters
+  if (/^[=+\-@\t\r]/.test(str)) {
+    return `'${str}`;
+  }
+  // Wrap in quotes if it contains commas or quotes
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
 // GET /api/classes/:classId/export/grades — Export gradebook as CSV
 router.get('/classes/:classId/export/grades', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -24,19 +38,19 @@ router.get('/classes/:classId/export/grades', auth, authorize('teacher'), async 
     const attempts = await Attempt.find({ quizId: { $in: quizIds }, status: 'submitted' });
 
     // Build CSV
-    const header = ['Nama', 'Email', ...quizzes.map((q) => q.title), 'Rata-rata'].join(',');
+    const header = [sanitizeCsvCell('Nama'), sanitizeCsvCell('Email'), ...quizzes.map((q) => sanitizeCsvCell(q.title)), sanitizeCsvCell('Rata-rata')].join(',');
     const rows = members.map((m) => {
       const user = m.userId as any;
       const scores = quizzes.map((q) => {
         const attempt = attempts.find((a) => a.userId.toString() === user._id.toString() && a.quizId.toString() === q._id.toString());
-        return attempt ? `${attempt.score ?? 0}/${attempt.totalPoints ?? 0}` : '-';
+        return attempt ? sanitizeCsvCell(`${attempt.score ?? 0}/${attempt.totalPoints ?? 0}`) : '-';
       });
       const numericScores = quizzes.map((q) => {
         const attempt = attempts.find((a) => a.userId.toString() === user._id.toString() && a.quizId.toString() === q._id.toString());
         return attempt && attempt.totalPoints ? Math.round(((attempt.score ?? 0) / attempt.totalPoints) * 100) : null;
       }).filter((s) => s !== null) as number[];
       const avg = numericScores.length > 0 ? Math.round(numericScores.reduce((a, b) => a + b, 0) / numericScores.length) : '-';
-      return [user.name, user.email, ...scores, avg].join(',');
+      return [sanitizeCsvCell(user.name), sanitizeCsvCell(user.email), ...scores, sanitizeCsvCell(avg)].join(',');
     });
 
     const csv = [header, ...rows].join('\n');
@@ -60,12 +74,12 @@ router.get('/quizzes/:quizId/export/results', auth, authorize('teacher'), async 
       .populate('userId', 'name email')
       .sort({ score: -1 });
 
-    const header = ['Nama', 'Email', 'Skor', 'Total', 'Persentase', 'Waktu Mulai', 'Waktu Selesai'].join(',');
+    const header = ['Nama', 'Email', 'Skor', 'Total', 'Persentase', 'Waktu Mulai', 'Waktu Selesai'].map(sanitizeCsvCell).join(',');
     const rows = attempts.map((a) => {
       const user = a.userId as any;
       const pct = a.totalPoints ? Math.round(((a.score ?? 0) / a.totalPoints) * 100) : 0;
       return [
-        user.name, user.email, a.score ?? 0, a.totalPoints ?? 0, `${pct}%`,
+        sanitizeCsvCell(user.name), sanitizeCsvCell(user.email), a.score ?? 0, a.totalPoints ?? 0, `${pct}%`,
         a.startedAt?.toISOString() || '', a.submittedAt?.toISOString() || '',
       ].join(',');
     });

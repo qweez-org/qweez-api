@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { User } from '../models/User.js';
+import { Membership } from '../models/Membership.js';
 
 export const setupSocketIO = (io: SocketIOServer): void => {
   // Auth middleware for Socket.IO
@@ -29,16 +30,33 @@ export const setupSocketIO = (io: SocketIOServer): void => {
     const user = (socket as any).user;
     console.log(`🔌 Socket connected: ${user.name} (${user._id})`);
 
-    // Join class rooms
-    socket.on('join:class', (classId: string) => {
-      socket.join(`class:${classId}`);
-      console.log(`  → ${user.name} joined class room: ${classId}`);
+    // Fix #31: Verify membership before allowing class room join
+    socket.on('join:class', async (classId: string) => {
+      try {
+        // Teachers who own the class can join
+        const { Class } = await import('../models/Class.js');
+        const cls = await Class.findById(classId);
+        if (!cls) return;
+
+        const isOwner = cls.owner.toString() === user._id.toString();
+        const isMember = await Membership.findOne({
+          userId: user._id,
+          classId,
+          status: 'approved',
+        });
+
+        if (isOwner || isMember) {
+          socket.join(`class:${classId}`);
+        }
+      } catch (e) {
+        // Silently reject unauthorized joins
+      }
     });
 
-    // Join quiz room (for live quiz)
+    // Join quiz room (for live quiz) — allow authenticated users for now
+    // (quiz access is gated by class membership at the HTTP level)
     socket.on('join:quiz', (quizId: string) => {
       socket.join(`quiz:${quizId}`);
-      console.log(`  → ${user.name} joined quiz room: ${quizId}`);
     });
 
     // Leave quiz room
