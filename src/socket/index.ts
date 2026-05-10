@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { User } from '../models/User.js';
 import { Membership } from '../models/Membership.js';
+import { registerLiveQuizHandlers } from './liveQuizHandler.js';
 
 export const setupSocketIO = (io: SocketIOServer): void => {
   // Auth middleware for Socket.IO
@@ -53,8 +54,7 @@ export const setupSocketIO = (io: SocketIOServer): void => {
       }
     });
 
-    // Join quiz room (for live quiz) — allow authenticated users for now
-    // (quiz access is gated by class membership at the HTTP level)
+    // Join quiz room (for live quiz notifications)
     socket.on('join:quiz', (quizId: string) => {
       socket.join(`quiz:${quizId}`);
     });
@@ -63,6 +63,9 @@ export const setupSocketIO = (io: SocketIOServer): void => {
     socket.on('leave:quiz', (quizId: string) => {
       socket.leave(`quiz:${quizId}`);
     });
+
+    // ── Live Quiz Handlers ─────────────────────────────────────────────────
+    registerLiveQuizHandlers(io, socket);
 
     socket.on('disconnect', () => {
       console.log(`🔌 Socket disconnected: ${user.name}`);
