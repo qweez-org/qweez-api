@@ -1,6 +1,8 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
+import { createClient } from 'redis';
+import { createAdapter } from '@socket.io/redis-adapter';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -96,7 +98,19 @@ app.use(errorHandler);
 // Start
 const start = async (): Promise<void> => {
   await connectDB();
+
+  if (env.REDIS_URL) {
+    const pubClient = createClient({ url: env.REDIS_URL });
+    const subClient = pubClient.duplicate();
+
+    await pubClient.connect();
+    await subClient.connect();
+
+    io.adapter(createAdapter(pubClient, subClient));
+  }
+
   startScheduler();
+
   httpServer.listen(env.PORT, () => {
     console.log(`\n🚀 Qweez API running on http://localhost:${env.PORT}`);
     console.log(`📡 Socket.IO ready\n`);

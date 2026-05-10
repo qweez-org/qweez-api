@@ -14,7 +14,11 @@ export const setupSocketIO = (io: SocketIOServer): void => {
         return next(new Error('Authentication required'));
       }
 
-      const decoded = jwt.verify(token as string, env.JWT_SECRET) as { userId: string };
+      const decoded = jwt.verify(token as string, env.JWT_SECRET) as { userId: string; type?: string };
+      if (decoded.type !== 'access') {
+        return next(new Error('Invalid token type'));
+      }
+
       const user = await User.findById(decoded.userId);
       if (!user) {
         return next(new Error('User not found'));

@@ -43,6 +43,23 @@ interface LiveSession {
 const sessions = new Map<string, LiveSession>();
 const quizIdToPin = new Map<string, string>();
 
+const SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+function cleanupExpiredSessions(): void {
+  const now = Date.now();
+  for (const [pin, session] of sessions.entries()) {
+    const createdAt = session.createdAt instanceof Date ? session.createdAt.getTime() : new Date(session.createdAt).getTime();
+    const expired = createdAt + SESSION_TTL_MS <= now;
+    if (expired) {
+      sessions.delete(pin);
+      quizIdToPin.delete(session.quizId);
+    }
+  }
+}
+
+setInterval(cleanupExpiredSessions, CLEANUP_INTERVAL_MS).unref();
+
 function generatePin(): string {
   // 6-digit numeric PIN, avoid collisions
   let pin: string;

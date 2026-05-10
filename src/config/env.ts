@@ -7,7 +7,13 @@ if (!process.env.JWT_SECRET) {
   process.exit(1);
 }
 
+if ((process.env.CORS_ORIGIN || '').trim() === '*') {
+  console.error('❌ FATAL: CORS_ORIGIN cannot be "*". Provide a comma-separated allowlist of origins.');
+  process.exit(1);
+}
+
 export const env = {
+  NODE_ENV: process.env.NODE_ENV || 'development',
   PORT: parseInt(process.env.PORT || '5000', 10),
   MONGODB_URI: process.env.MONGODB_URI || 'mongodb://localhost:27017/qweez',
   JWT_SECRET: process.env.JWT_SECRET,
@@ -18,4 +24,11 @@ export const env = {
   REFRESH_TOKEN_COOKIE_SECURE: process.env.REFRESH_TOKEN_COOKIE_SECURE === 'true',
   // Comma-separated list of allowed origins. Example: "http://localhost:5173,https://app.example.com"
   CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  // Required for multi-instance Socket.IO deployments
+  REDIS_URL: process.env.REDIS_URL || '',
 };
+
+if (env.NODE_ENV !== 'development' && !env.REDIS_URL) {
+  console.error('❌ FATAL: REDIS_URL is required outside development for multi-instance Socket.IO.');
+  process.exit(1);
+}

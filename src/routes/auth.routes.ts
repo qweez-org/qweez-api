@@ -11,9 +11,9 @@ import { getCookieValue } from '../utils/cookies.js';
 
 const router = Router();
 
-const isCookieRefreshRequest = (req: AuthRequest): boolean => {
-  const ua = (req.headers['user-agent'] || '').toLowerCase();
-  return ua.includes('mozilla') || ua.includes('chrome') || ua.includes('safari') || ua.includes('edge');
+const wantsCookieRefresh = (req: AuthRequest): boolean => {
+  const header = (req.headers['x-refresh-cookie'] || '').toString();
+  return header === '1' || header.toLowerCase() === 'true';
 };
 
 const setRefreshCookie = (res: Response, refreshToken: string): void => {
@@ -72,7 +72,7 @@ router.post('/register', validate(registerSchema), async (req: AuthRequest, res:
     const user = await User.create({ name, email, password, role });
     const { accessToken, refreshToken } = await issueTokens(user._id.toString());
 
-    if (isCookieRefreshRequest(req)) {
+    if (wantsCookieRefresh(req)) {
       setRefreshCookie(res, refreshToken);
       res.status(201).json({ accessToken, user });
       return;
@@ -108,7 +108,7 @@ router.post('/login', validate(loginSchema), async (req: AuthRequest, res: Respo
 
     const { accessToken, refreshToken } = await issueTokens(user._id.toString());
 
-    if (isCookieRefreshRequest(req)) {
+    if (wantsCookieRefresh(req)) {
       setRefreshCookie(res, refreshToken);
       res.json({ accessToken, user });
       return;
