@@ -55,8 +55,34 @@ export const setupSocketIO = (io: SocketIOServer): void => {
     });
 
     // Join quiz room (for live quiz notifications)
-    socket.on('join:quiz', (quizId: string) => {
-      socket.join(`quiz:${quizId}`);
+    socket.on('join:quiz', async (quizId: string) => {
+      try {
+        const { Quiz } = await import('../models/Quiz.js');
+        const { Topic } = await import('../models/Topic.js');
+        const { Class } = await import('../models/Class.js');
+
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) return;
+
+        const topic = await Topic.findById(quiz.topicId);
+        if (!topic) return;
+
+        const cls = await Class.findById(topic.classId);
+        if (!cls) return;
+
+        const isOwner = cls.owner.toString() === user._id.toString();
+        const isMember = await Membership.findOne({
+          userId: user._id,
+          classId: cls._id,
+          status: 'approved',
+        });
+
+        if (isOwner || isMember) {
+          socket.join(`quiz:${quizId}`);
+        }
+      } catch (e) {
+        // Silently reject unauthorized joins
+      }
     });
 
     // Leave quiz room

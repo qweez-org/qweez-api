@@ -25,6 +25,12 @@ router.get('/classes/:classId', auth, async (req: AuthRequest, res: Response): P
       .populate('quizId', 'title topicId')
       .sort({ submittedAt: -1 });
 
+    // Add earnedPoints alias for mobile compatibility
+    const grades = attempts.map((a) => {
+      const obj = a.toObject();
+      return { ...obj, earnedPoints: obj.score ?? 0 };
+    });
+
     // Get all students in the class for the grade matrix
     const members = await Membership.find({
       classId: req.params.classId,
@@ -32,7 +38,7 @@ router.get('/classes/:classId', auth, async (req: AuthRequest, res: Response): P
       status: 'approved',
     }).populate('userId', 'name email');
 
-    res.json({ grades: attempts, quizzes, members, topics });
+    res.json({ grades, quizzes, members, topics });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch grades' });
   }

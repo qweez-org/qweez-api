@@ -27,6 +27,30 @@ router.post('/quizzes/:quizId/start', auth, async (req: AuthRequest, res: Respon
       return;
     }
 
+    // Bug #3 fix: Verify class membership before allowing quiz start
+    const topic = await Topic.findById(quiz.topicId);
+    if (!topic) {
+      res.status(404).json({ message: 'Quiz topic not found' });
+      return;
+    }
+    const cls = await Class.findById(topic.classId);
+    if (!cls) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+    const isOwner = cls.owner.toString() === req.user!._id.toString();
+    if (!isOwner) {
+      const membership = await Membership.findOne({
+        userId: req.user!._id,
+        classId: cls._id,
+        status: 'approved',
+      });
+      if (!membership) {
+        res.status(403).json({ message: 'You are not enrolled in this class' });
+        return;
+      }
+    }
+
     // Check attempt limit
     const attemptCount = await Attempt.countDocuments({
       userId: req.user!._id,
@@ -173,6 +197,9 @@ router.post('/:attemptId/submit', auth, async (req: AuthRequest, res: Response):
 
     const result = await scoreAttempt(attempt._id.toString());
 
+    // Re-fetch attempt after scoring so response has correct score
+    const freshAttempt = await Attempt.findById(attempt._id);
+
     const io = req.app.get('io');
     if (io) {
       io.to(`quiz:${attempt.quizId}`).emit('live:leaderboard_update', {
@@ -181,7 +208,8 @@ router.post('/:attemptId/submit', auth, async (req: AuthRequest, res: Response):
       });
     }
 
-    res.json({ attempt, ...result });
+    // Include earnedPoints alias for mobile compatibility
+    res.json({ attempt: freshAttempt, ...result, earnedPoints: result.score });
   } catch (error) {
     res.status(500).json({ message: 'Failed to submit attempt' });
   }

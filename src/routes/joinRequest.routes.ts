@@ -5,6 +5,7 @@ import { Membership } from '../models/Membership.js';
 import { Notification } from '../models/Notification.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
+import { getManageableClassForTeacher } from '../utils/access.js';
 import { validate } from '../middleware/validate.js';
 
 const router = Router();
@@ -74,6 +75,12 @@ router.get('/', auth, async (req: AuthRequest, res: Response): Promise<void> => 
 // GET /api/classes/:classId/join-requests — teacher views join requests for their class
 router.get('/:classId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
+    if (!manageable) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const status = req.query.status as string || undefined;
     const filter: any = { classId: req.params.classId };
     if (status) filter.status = status;
@@ -91,6 +98,12 @@ router.get('/:classId', auth, authorize('teacher'), async (req: AuthRequest, res
 // POST /api/classes/:classId/join-requests/:requestId/approve
 router.post('/:classId/approve/:requestId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
+    if (!manageable) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const membership = await Membership.findOneAndUpdate(
       { _id: req.params.requestId, classId: req.params.classId, status: 'pending' },
       { status: 'approved' },
@@ -120,6 +133,12 @@ router.post('/:classId/approve/:requestId', auth, authorize('teacher'), async (r
 // POST /api/classes/:classId/join-requests/:requestId/reject
 router.post('/:classId/reject/:requestId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
+    if (!manageable) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const membership = await Membership.findOneAndUpdate(
       { _id: req.params.requestId, classId: req.params.classId, status: 'pending' },
       { status: 'rejected' },

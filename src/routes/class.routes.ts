@@ -7,6 +7,7 @@ import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
 import { generateClassCode } from '../utils/generateCode.js';
+import { getClassForUser } from '../utils/access.js';
 
 const router = Router();
 
@@ -75,11 +76,13 @@ router.get('/', auth, async (req: AuthRequest, res: Response): Promise<void> => 
 // GET /api/classes/:classId
 router.get('/:classId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const cls = await Class.findById(req.params.classId).populate('owner', 'name email avatar');
+    const cls = await getClassForUser(req.params.classId, req.user!);
     if (!cls) {
       res.status(404).json({ message: 'Class not found' });
       return;
     }
+
+    await cls.populate('owner', 'name email avatar');
 
     const memberCount = await Membership.countDocuments({ classId: cls._id, status: 'approved', role: 'student' });
     const topicCount = await Topic.countDocuments({ classId: cls._id });

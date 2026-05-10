@@ -27,13 +27,28 @@ import coTeacherRoutes from './routes/coTeacher.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import exportRoutes from './routes/export.routes.js';
 
+const allowedOrigins = env.CORS_ORIGIN
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Allow non-browser requests (no Origin header), e.g. curl, server-to-server
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+};
+
 const app = express();
 const httpServer = createServer(app);
 
 // Socket.IO
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: env.CORS_ORIGIN,
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
   },
 });
@@ -41,7 +56,7 @@ app.set('io', io);
 setupSocketIO(io);
 
 // Middleware
-app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+app.use(cors(corsOptions));
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

@@ -2,12 +2,19 @@ import { Router, Response } from 'express';
 import { Membership } from '../models/Membership.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
+import { getClassForUser } from '../utils/access.js';
 
 const router = Router();
 
 // GET /api/classes/:classId/members
 router.get('/:classId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const cls = await getClassForUser(req.params.classId, req.user!);
+    if (!cls) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const members = await Membership.find({
       classId: req.params.classId,
       status: 'approved',

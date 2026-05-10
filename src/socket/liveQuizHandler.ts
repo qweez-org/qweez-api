@@ -2,6 +2,8 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Question, IQuestion } from '../models/Question.js';
 import { Quiz } from '../models/Quiz.js';
 import { Topic } from '../models/Topic.js';
+import { Membership } from '../models/Membership.js';
+import { LiveResult } from '../models/LiveResult.js';
 import crypto from 'crypto';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -225,24 +227,42 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
   });
 
   // ── student_join ───────────────────────────────────────────────────────────
-  socket.on('student_join', (data: { pin: string; displayName: string }) => {
+  socket.on('student_join', async (data: { pin: string; displayName: string }) => {
     const session = sessions.get(data.pin);
     if (!session) {
       socket.emit('join_error', { message: 'PIN tidak valid. Sesi tidak ditemukan.' });
       return;
     }
 
-    if (session.status !== 'waiting') {
-      socket.emit('join_error', { message: 'Sesi sudah dimulai atau selesai.' });
+    if (session.status === 'finished') {
+      socket.emit('join_error', { message: 'Sesi sudah selesai.' });
+      return;
+    }
+
+    // Bug #4 fix: Verify class membership before allowing join
+    const membership = await Membership.findOne({
+      userId: user._id,
+      classId: session.classId,
+      status: 'approved',
+    });
+    if (!membership) {
+      socket.emit('join_error', { message: 'Anda tidak terdaftar di kelas ini.' });
       return;
     }
 
     // Check if student already joined (allow reconnect)
     const existingIdx = session.participants.findIndex((p) => p.userId === user._id.toString());
-    if (existingIdx >= 0) {
+    const isReconnect = existingIdx >= 0;
+
+    if (isReconnect) {
       // Update socket ID for reconnect
       session.participants[existingIdx].socketId = socket.id;
     } else {
+      // New join — only allowed during waiting
+      if (session.status !== 'waiting') {
+        socket.emit('join_error', { message: 'Sesi sudah dimulai. Tidak bisa bergabung.' });
+        return;
+      }
       session.participants.push({
         socketId: socket.id,
         userId: user._id.toString(),
@@ -254,13 +274,23 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     socket.join(`live:${data.pin}`);
 
     // Confirm to the joining student
-    Quiz.findById(session.quizId).then((quiz) => {
-      socket.emit('join_success', {
-        pin: data.pin,
-        quizTitle: quiz?.title || 'Live Quiz',
-        participantCount: session.participants.length,
-      });
+    const quiz = await Quiz.findById(session.quizId);
+    socket.emit('join_success', {
+      pin: data.pin,
+      quizTitle: quiz?.title || 'Live Quiz',
+      participantCount: session.participants.length,
     });
+
+    // Bug #16 fix: If session is already active, send current question to reconnecting student
+    if (isReconnect && session.status === 'active' && session.currentQuestionIndex >= 0) {
+      const currentQ = session.questions[session.currentQuestionIndex];
+      socket.emit('quiz_started', {
+        questionIndex: session.currentQuestionIndex,
+        question: sanitizeQuestion(currentQ, session.currentQuestionIndex),
+        timeLimit: quiz?.duration ? Math.floor((quiz.duration * 60) / session.questions.length) : 30,
+        totalQuestions: session.questions.length,
+      });
+    }
 
     // Broadcast to entire room (teacher + other students)
     io.to(`live:${data.pin}`).emit('participant_joined', {
@@ -419,6 +449,37 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
       await Quiz.findByIdAndUpdate(session.quizId, { status: 'finished' });
 
       const leaderboard = buildLeaderboard(session);
+
+      // Bug #12 fix: Persist all live quiz results to DB
+      try {
+        const totalPoints = session.questions.reduce((sum, q) => sum + q.points, 0);
+        for (const entry of leaderboard) {
+          const userAnswers = session.answers[entry.userId] || {};
+          const answerDocs = session.questions.map((q, idx) => {
+            const ans = userAnswers[idx];
+            return {
+              questionId: q._id,
+              answer: ans?.answer || '',
+              isCorrect: ans?.correct || false,
+              points: ans?.points || 0,
+            };
+          });
+
+          await LiveResult.findOneAndUpdate(
+            { sessionPin: data.pin, quizId: session.quizId, userId: entry.userId },
+            {
+              score: entry.score,
+              totalPoints,
+              answers: answerDocs,
+              rank: entry.rank,
+            },
+            { upsert: true, new: true }
+          );
+        }
+        console.log(`🏆 Live results persisted for ${leaderboard.length} participants`);
+      } catch (err) {
+        console.error('Failed to persist live results:', err);
+      }
 
       io.to(`live:${data.pin}`).emit('quiz_ended', { leaderboard });
 

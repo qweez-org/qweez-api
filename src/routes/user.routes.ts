@@ -9,6 +9,11 @@ const router = Router();
 // GET /api/users/:id
 router.get('/:id', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    if (req.user!._id.toString() !== req.params.id.toString()) {
+      res.status(403).json({ message: 'Access denied' });
+      return;
+    }
+
     const user = await User.findById(req.params.id).select('name email role avatar');
     if (!user) {
       res.status(404).json({ message: 'User not found' });

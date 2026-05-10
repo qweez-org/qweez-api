@@ -10,6 +10,7 @@ import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import Joi from 'joi';
 import { validate } from '../middleware/validate.js';
+import { getQuizContextForUser, getManageableClassForTeacher } from '../utils/access.js';
 
 const router = Router();
 
@@ -80,7 +81,7 @@ router.post('/topics/:topicId', auth, authorize('teacher'), validate(createQuizS
       return;
     }
 
-    const { title, duration, mode, attemptLimit, scheduledOpen, scheduledClose, description } = req.body;
+    const { title, duration, mode, attemptLimit, scheduledOpen, scheduledClose, description, allowBacktrack } = req.body;
     const quiz = new Quiz({
       title,
       description,
@@ -89,6 +90,7 @@ router.post('/topics/:topicId', auth, authorize('teacher'), validate(createQuizS
       attemptLimit,
       scheduledOpen,
       scheduledClose,
+      allowBacktrack,
       topicId: req.params.topicId,
       status: 'draft',
     });
@@ -102,12 +104,21 @@ router.post('/topics/:topicId', auth, authorize('teacher'), validate(createQuizS
 // GET /api/quizzes/:quizId
 router.get('/:quizId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const quiz = await Quiz.findById(req.params.quizId);
-    if (!quiz) {
+    const ctx = await getQuizContextForUser(req.params.quizId, req.user!);
+    if (!ctx) {
       res.status(404).json({ message: 'Quiz not found' });
       return;
     }
-    res.json({ quiz });
+
+    if (req.user!.role === 'teacher') {
+      const manageable = await getManageableClassForTeacher(ctx.topic.classId.toString(), req.user!);
+      if (!manageable) {
+        res.status(403).json({ message: 'You do not have access to this quiz' });
+        return;
+      }
+    }
+
+    res.json({ quiz: ctx.quiz });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch quiz' });
   }
@@ -164,7 +175,35 @@ router.delete('/:quizId', auth, authorize('teacher'), async (req: AuthRequest, r
 // GET /api/quizzes/:quizId/questions
 router.get('/:quizId/questions', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const ctx = await getQuizContextForUser(req.params.quizId, req.user!);
+    if (!ctx) {
+      res.status(404).json({ message: 'Quiz not found' });
+      return;
+    }
+
+    if (req.user!.role === 'teacher') {
+      const manageable = await getManageableClassForTeacher(ctx.topic.classId.toString(), req.user!);
+      if (!manageable) {
+        res.status(403).json({ message: 'You do not have access to this quiz' });
+        return;
+      }
+    }
+
     const questions = await Question.find({ quizId: req.params.quizId }).sort({ order: 1, createdAt: 1 });
+
+    // Bug #6 fix: Strip isCorrect from options for student users
+    if (req.user!.role === 'student') {
+      const sanitized = questions.map((q) => {
+        const obj = q.toObject();
+        if (obj.options) {
+          obj.options = obj.options.map((o: any) => ({ text: o.text })) as any;
+        }
+        return obj;
+      });
+      res.json({ questions: sanitized });
+      return;
+    }
+
     res.json({ questions });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch questions' });

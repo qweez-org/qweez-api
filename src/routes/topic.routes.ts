@@ -6,6 +6,7 @@ import { TeacherAssignment } from '../models/TeacherAssignment.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
+import { getClassForUser, getManageableClassForTeacher } from '../utils/access.js';
 
 const router = Router();
 
@@ -16,6 +17,12 @@ const createTopicSchema = Joi.object({
 
 router.post('/:classId', auth, authorize('teacher'), validate(createTopicSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
+    if (!manageable) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const topic = await Topic.create({
       name: req.body.name,
       classId: req.params.classId,
@@ -29,6 +36,12 @@ router.post('/:classId', auth, authorize('teacher'), validate(createTopicSchema)
 // GET /api/classes/:classId/topics
 router.get('/:classId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const cls = await getClassForUser(req.params.classId, req.user!);
+    if (!cls) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const topics = await Topic.find({ classId: req.params.classId });
 
     // Add quiz count per topic
@@ -53,8 +66,19 @@ router.get('/:classId', auth, async (req: AuthRequest, res: Response): Promise<v
 // GET /api/classes/:classId/topics/:topicId
 router.get('/:classId/:topicId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const cls = await getClassForUser(req.params.classId, req.user!);
+    if (!cls) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const topic = await Topic.findById(req.params.topicId);
     if (!topic) {
+      res.status(404).json({ message: 'Topic not found' });
+      return;
+    }
+
+    if (topic.classId.toString() !== req.params.classId.toString()) {
       res.status(404).json({ message: 'Topic not found' });
       return;
     }
@@ -80,6 +104,12 @@ const updateTopicSchema = Joi.object({
 
 router.patch('/:classId/:topicId', auth, authorize('teacher'), validate(updateTopicSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
+    if (!manageable) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const { teacherId, ...updates } = req.body;
 
     const topic = await Topic.findByIdAndUpdate(req.params.topicId, updates, { new: true, runValidators: true });
@@ -106,8 +136,19 @@ router.patch('/:classId/:topicId', auth, authorize('teacher'), validate(updateTo
 // DELETE /api/classes/:classId/topics/:topicId — Fix #21: cascade delete
 router.delete('/:classId/:topicId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
+    if (!manageable) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const topic = await Topic.findByIdAndDelete(req.params.topicId);
     if (!topic) {
+      res.status(404).json({ message: 'Topic not found' });
+      return;
+    }
+
+    if (topic.classId.toString() !== req.params.classId.toString()) {
       res.status(404).json({ message: 'Topic not found' });
       return;
     }
