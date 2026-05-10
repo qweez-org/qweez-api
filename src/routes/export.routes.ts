@@ -6,6 +6,8 @@ import { Membership } from '../models/Membership.js';
 import { Question } from '../models/Question.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
+import { validateObjectIdParam } from '../middleware/validateObjectId.js';
+import { getManageableClassForTeacher } from '../utils/access.js';
 
 const router = Router();
 
@@ -24,8 +26,14 @@ function sanitizeCsvCell(value: string | number | null | undefined): string {
 }
 
 // GET /api/classes/:classId/export/grades — Export gradebook as CSV
-router.get('/classes/:classId/export/grades', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/classes/:classId/export/grades', auth, authorize('teacher'), validateObjectIdParam('classId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
+    if (!manageable) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const topics = await Topic.find({ classId: req.params.classId });
     const topicIds = topics.map((t) => t._id);
     const quizzes = await Quiz.find({ topicId: { $in: topicIds } }).sort({ createdAt: 1 });
@@ -64,10 +72,20 @@ router.get('/classes/:classId/export/grades', auth, authorize('teacher'), async 
 });
 
 // GET /api/quizzes/:quizId/export/results — Export quiz results as CSV
-router.get('/quizzes/:quizId/export/results', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/quizzes/:quizId/export/results', auth, authorize('teacher'), validateObjectIdParam('quizId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const quiz = await Quiz.findById(req.params.quizId);
     if (!quiz) { res.status(404).json({ message: 'Quiz not found' }); return; }
+
+    const { Topic } = await import('../models/Topic.js');
+    const topic = await Topic.findById(quiz.topicId);
+    if (!topic) { res.status(404).json({ message: 'Topic not found' }); return; }
+
+    const manageable = await getManageableClassForTeacher(topic.classId.toString(), req.user!);
+    if (!manageable) {
+      res.status(403).json({ message: 'Access denied' });
+      return;
+    }
 
     const questions = await Question.find({ quizId: quiz._id }).sort({ order: 1 });
     const attempts = await Attempt.find({ quizId: quiz._id, status: 'submitted' })

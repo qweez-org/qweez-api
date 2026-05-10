@@ -3,29 +3,45 @@ import { Quiz } from '../models/Quiz.js';
 import { Attempt } from '../models/Attempt.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
+import { validateObjectIdParam } from '../middleware/validateObjectId.js';
+import { getClassForUser, getManageableClassForTeacher } from '../utils/access.js';
 import { createLiveSession, cancelLiveSession, getSessionByQuizId } from '../socket/liveQuizHandler.js';
 
 const router = Router();
 
 // POST /api/quizzes/:quizId/live/start — teacher creates a live session, gets a PIN
-router.post('/:quizId/live/start', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:quizId/live/start', auth, authorize('teacher'), validateObjectIdParam('quizId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const quiz = await Quiz.findById(req.params.quizId);
+    if (!quiz) {
+      res.status(404).json({ message: 'Quiz not found' });
+      return;
+    }
+
+    const { Topic } = await import('../models/Topic.js');
+    const topic = await Topic.findById(quiz.topicId);
+    if (!topic) {
+      res.status(404).json({ message: 'Topic not found' });
+      return;
+    }
+
+    const manageable = await getManageableClassForTeacher(topic.classId.toString(), req.user!);
+    if (!manageable) {
+      res.status(403).json({ message: 'Access denied' });
+      return;
+    }
+
     const result = await createLiveSession(req.params.quizId, req.user!._id.toString());
 
     // Notify students in the class via socket
-    const quiz = await Quiz.findById(req.params.quizId);
     const io = req.app.get('io');
-    if (io && quiz) {
-      const { Topic } = await import('../models/Topic.js');
-      const topic = await Topic.findById(quiz.topicId);
-      if (topic) {
-        io.to(`class:${topic.classId}`).emit('live:started', {
-          quizId: quiz._id,
-          title: quiz.title,
-          duration: quiz.duration,
-          pin: result.pin,
-        });
-      }
+    if (io) {
+      io.to(`class:${topic.classId}`).emit('live:started', {
+        quizId: quiz._id,
+        title: quiz.title,
+        duration: quiz.duration,
+        pin: result.pin,
+      });
     }
 
     res.json({
@@ -40,7 +56,7 @@ router.post('/:quizId/live/start', auth, authorize('teacher'), async (req: AuthR
 });
 
 // POST /api/quizzes/:quizId/live/cancel — teacher cancels the session
-router.post('/:quizId/live/cancel', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:quizId/live/cancel', auth, authorize('teacher'), validateObjectIdParam('quizId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const io = req.app.get('io');
     cancelLiveSession(req.params.quizId, io);
@@ -53,8 +69,27 @@ router.post('/:quizId/live/cancel', auth, authorize('teacher'), async (req: Auth
 });
 
 // GET /api/quizzes/:quizId/live/participants — get current participant list
-router.get('/:quizId/live/participants', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:quizId/live/participants', auth, validateObjectIdParam('quizId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const quiz = await Quiz.findById(req.params.quizId);
+    if (!quiz) {
+      res.status(404).json({ message: 'Quiz not found' });
+      return;
+    }
+
+    const { Topic } = await import('../models/Topic.js');
+    const topic = await Topic.findById(quiz.topicId);
+    if (!topic) {
+      res.status(404).json({ message: 'Topic not found' });
+      return;
+    }
+
+    const manageable = await getManageableClassForTeacher(topic.classId.toString(), req.user!);
+    if (!manageable) {
+      res.status(403).json({ message: 'Access denied' });
+      return;
+    }
+
     const session = getSessionByQuizId(req.params.quizId);
     if (!session) {
       res.status(404).json({ message: 'No active live quiz session' });
@@ -76,8 +111,37 @@ router.get('/:quizId/live/participants', auth, async (req: AuthRequest, res: Res
 });
 
 // GET /api/quizzes/:quizId/live/leaderboard — get current leaderboard
-router.get('/:quizId/live/leaderboard', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:quizId/live/leaderboard', auth, validateObjectIdParam('quizId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const quiz = await Quiz.findById(req.params.quizId);
+    if (!quiz) {
+      res.status(404).json({ message: 'Quiz not found' });
+      return;
+    }
+
+    const { Topic } = await import('../models/Topic.js');
+    const topic = await Topic.findById(quiz.topicId);
+    if (!topic) {
+      res.status(404).json({ message: 'Topic not found' });
+      return;
+    }
+
+    if (req.user!.role === 'teacher') {
+      const manageable = await getManageableClassForTeacher(topic.classId.toString(), req.user!);
+      if (!manageable) {
+        res.status(403).json({ message: 'Access denied' });
+        return;
+      }
+    }
+
+    // Students must be enrolled in the class
+    if (req.user!.role === 'student') {
+      const cls = await getClassForUser(topic.classId.toString(), req.user!);
+      if (!cls) {
+        res.status(403).json({ message: 'Access denied' });
+        return;
+      }
+    }
     // First try from live session
     const session = getSessionByQuizId(req.params.quizId);
     if (session) {

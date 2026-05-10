@@ -10,6 +10,7 @@ import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import Joi from 'joi';
 import { validate } from '../middleware/validate.js';
+import { validateObjectIdParam } from '../middleware/validateObjectId.js';
 import { getQuizContextForUser, getManageableClassForTeacher } from '../utils/access.js';
 
 const router = Router();
@@ -36,8 +37,42 @@ async function verifyQuizOwnership(quizId: string, userId: string): Promise<bool
 }
 
 // GET /api/quizzes/topics/:topicId
-router.get('/topics/:topicId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/topics/:topicId', auth, validateObjectIdParam('topicId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const topic = await Topic.findById(req.params.topicId);
+    if (!topic) {
+      res.status(404).json({ message: 'Topic not found' });
+      return;
+    }
+
+    const cls = await Class.findById(topic.classId);
+    if (!cls) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
+    const userId = req.user!._id.toString();
+    const isOwner = cls.owner.toString() === userId;
+
+    if (req.user!.role === 'teacher') {
+      const isCoTeacher = await Membership.findOne({
+        userId: req.user!._id,
+        classId: cls._id,
+        role: 'co-teacher',
+        status: 'approved',
+      });
+      if (!isOwner && !isCoTeacher) {
+        res.status(403).json({ message: 'Access denied' });
+        return;
+      }
+    } else {
+      const membership = await Membership.findOne({ userId: req.user!._id, classId: cls._id, status: 'approved' });
+      if (!isOwner && !membership) {
+        res.status(403).json({ message: 'Access denied' });
+        return;
+      }
+    }
+
     const quizzes = await Quiz.find({ topicId: req.params.topicId }).sort({ createdAt: -1 });
     res.json({ quizzes });
   } catch (error) {
@@ -56,7 +91,7 @@ const createQuizSchema = Joi.object({
   description: Joi.string().max(1000).allow(''),
 });
 
-router.post('/topics/:topicId', auth, authorize('teacher'), validate(createQuizSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/topics/:topicId', auth, authorize('teacher'), validateObjectIdParam('topicId'), validate(createQuizSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Verify the teacher owns this class
     const topic = await Topic.findById(req.params.topicId);
@@ -102,7 +137,7 @@ router.post('/topics/:topicId', auth, authorize('teacher'), validate(createQuizS
 });
 
 // GET /api/quizzes/:quizId
-router.get('/:quizId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:quizId', auth, validateObjectIdParam('quizId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const ctx = await getQuizContextForUser(req.params.quizId, req.user!);
     if (!ctx) {
@@ -125,7 +160,19 @@ router.get('/:quizId', auth, async (req: AuthRequest, res: Response): Promise<vo
 });
 
 // PATCH /api/quizzes/:quizId — Fix #3: verify ownership
-router.patch('/:quizId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+const updateQuizSchema = Joi.object({
+  title: Joi.string().min(2).max(300),
+  description: Joi.string().max(1000).allow(''),
+  duration: Joi.number().integer().min(1).max(480),
+  mode: Joi.string().valid('scheduled', 'manual', 'live'),
+  attemptLimit: Joi.number().integer().min(1).max(10),
+  scheduledOpen: Joi.date().iso().allow(null),
+  scheduledClose: Joi.date().iso().allow(null),
+  status: Joi.string().valid('draft', 'scheduled', 'open', 'closed', 'waiting', 'in_progress', 'finished'),
+  allowBacktrack: Joi.boolean(),
+});
+
+router.patch('/:quizId', auth, authorize('teacher'), validateObjectIdParam('quizId'), validate(updateQuizSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const hasAccess = await verifyQuizOwnership(req.params.quizId, req.user!._id.toString());
     if (!hasAccess) {
@@ -145,7 +192,7 @@ router.patch('/:quizId', auth, authorize('teacher'), async (req: AuthRequest, re
 });
 
 // DELETE /api/quizzes/:quizId — Fix #4: verify ownership + cascade delete
-router.delete('/:quizId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:quizId', auth, authorize('teacher'), validateObjectIdParam('quizId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const hasAccess = await verifyQuizOwnership(req.params.quizId, req.user!._id.toString());
     if (!hasAccess) {
@@ -173,7 +220,7 @@ router.delete('/:quizId', auth, authorize('teacher'), async (req: AuthRequest, r
 });
 
 // GET /api/quizzes/:quizId/questions
-router.get('/:quizId/questions', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:quizId/questions', auth, validateObjectIdParam('quizId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const ctx = await getQuizContextForUser(req.params.quizId, req.user!);
     if (!ctx) {
@@ -223,7 +270,7 @@ const createQuestionSchema = Joi.object({
   ).default([]),
 });
 
-router.post('/:quizId/questions', auth, authorize('teacher'), validate(createQuestionSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:quizId/questions', auth, authorize('teacher'), validateObjectIdParam('quizId'), validate(createQuestionSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const hasAccess = await verifyQuizOwnership(req.params.quizId, req.user!._id.toString());
     if (!hasAccess) {

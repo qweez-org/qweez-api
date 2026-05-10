@@ -6,6 +6,7 @@ import { TeacherAssignment } from '../models/TeacherAssignment.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
+import { validateObjectIdParam } from '../middleware/validateObjectId.js';
 import { getClassForUser, getManageableClassForTeacher } from '../utils/access.js';
 
 const router = Router();
@@ -15,7 +16,7 @@ const createTopicSchema = Joi.object({
   name: Joi.string().required().min(2).max(200),
 });
 
-router.post('/:classId', auth, authorize('teacher'), validate(createTopicSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:classId', auth, authorize('teacher'), validateObjectIdParam('classId'), validate(createTopicSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
     if (!manageable) {
@@ -34,7 +35,7 @@ router.post('/:classId', auth, authorize('teacher'), validate(createTopicSchema)
 });
 
 // GET /api/classes/:classId/topics
-router.get('/:classId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:classId', auth, validateObjectIdParam('classId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const cls = await getClassForUser(req.params.classId, req.user!);
     if (!cls) {
@@ -64,7 +65,7 @@ router.get('/:classId', auth, async (req: AuthRequest, res: Response): Promise<v
 });
 
 // GET /api/classes/:classId/topics/:topicId
-router.get('/:classId/:topicId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:classId/:topicId', auth, validateObjectIdParam('classId'), validateObjectIdParam('topicId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const cls = await getClassForUser(req.params.classId, req.user!);
     if (!cls) {
@@ -102,7 +103,7 @@ const updateTopicSchema = Joi.object({
   teacherId: Joi.string(), // Assign a teacher to this topic
 });
 
-router.patch('/:classId/:topicId', auth, authorize('teacher'), validate(updateTopicSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/:classId/:topicId', auth, authorize('teacher'), validateObjectIdParam('classId'), validateObjectIdParam('topicId'), validate(updateTopicSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
     if (!manageable) {
@@ -112,7 +113,11 @@ router.patch('/:classId/:topicId', auth, authorize('teacher'), validate(updateTo
 
     const { teacherId, ...updates } = req.body;
 
-    const topic = await Topic.findByIdAndUpdate(req.params.topicId, updates, { new: true, runValidators: true });
+    const topic = await Topic.findOneAndUpdate(
+      { _id: req.params.topicId, classId: req.params.classId },
+      updates,
+      { new: true, runValidators: true }
+    );
     if (!topic) {
       res.status(404).json({ message: 'Topic not found' });
       return;
@@ -134,7 +139,7 @@ router.patch('/:classId/:topicId', auth, authorize('teacher'), validate(updateTo
 });
 
 // DELETE /api/classes/:classId/topics/:topicId — Fix #21: cascade delete
-router.delete('/:classId/:topicId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:classId/:topicId', auth, authorize('teacher'), validateObjectIdParam('classId'), validateObjectIdParam('topicId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
     if (!manageable) {
@@ -142,13 +147,8 @@ router.delete('/:classId/:topicId', auth, authorize('teacher'), async (req: Auth
       return;
     }
 
-    const topic = await Topic.findByIdAndDelete(req.params.topicId);
+    const topic = await Topic.findOneAndDelete({ _id: req.params.topicId, classId: req.params.classId });
     if (!topic) {
-      res.status(404).json({ message: 'Topic not found' });
-      return;
-    }
-
-    if (topic.classId.toString() !== req.params.classId.toString()) {
       res.status(404).json({ message: 'Topic not found' });
       return;
     }

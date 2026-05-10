@@ -16,7 +16,11 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction):
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, env.JWT_SECRET) as { userId: string };
+    const decoded = jwt.verify(token, env.JWT_SECRET) as { userId: string; type?: string };
+    if (decoded.type !== 'access') {
+      res.status(401).json({ message: 'Invalid token type' });
+      return;
+    }
 
     const user = await User.findById(decoded.userId);
     if (!user) {

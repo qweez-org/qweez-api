@@ -153,13 +153,13 @@ export async function createLiveSession(
   return { pin, sessionId, questionCount: questions.length };
 }
 
-export function cancelLiveSession(quizId: string, io: SocketIOServer): void {
+export function cancelLiveSession(quizId: string, io?: SocketIOServer): void {
   const pin = quizIdToPin.get(quizId);
   if (!pin) return;
   const session = sessions.get(pin);
   if (!session) return;
 
-  io.to(`live:${pin}`).emit('session_cancelled', { reason: 'Teacher cancelled the session' });
+  io?.to(`live:${pin}`).emit('session_cancelled', { reason: 'Teacher cancelled the session' });
 
   sessions.delete(pin);
   quizIdToPin.delete(quizId);

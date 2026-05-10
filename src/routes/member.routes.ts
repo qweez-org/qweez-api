@@ -2,12 +2,13 @@ import { Router, Response } from 'express';
 import { Membership } from '../models/Membership.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
-import { getClassForUser } from '../utils/access.js';
+import { validateObjectIdParam } from '../middleware/validateObjectId.js';
+import { getClassForUser, getManageableClassForTeacher } from '../utils/access.js';
 
 const router = Router();
 
 // GET /api/classes/:classId/members
-router.get('/:classId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:classId', auth, validateObjectIdParam('classId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const cls = await getClassForUser(req.params.classId, req.user!);
     if (!cls) {
@@ -27,8 +28,14 @@ router.get('/:classId', auth, async (req: AuthRequest, res: Response): Promise<v
 });
 
 // DELETE /api/classes/:classId/members/:memberId
-router.delete('/:classId/:memberId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:classId/:memberId', auth, authorize('teacher'), validateObjectIdParam('classId'), validateObjectIdParam('memberId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
+    if (!manageable) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
     const membership = await Membership.findOneAndDelete({
       _id: req.params.memberId,
       classId: req.params.classId,
