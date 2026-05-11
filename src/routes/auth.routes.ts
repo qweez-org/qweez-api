@@ -63,9 +63,9 @@ router.post('/register', validate(registerSchema), async (req: AuthRequest, res:
   try {
     const { name, email, password, role } = req.body;
 
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email, role });
     if (existingUser) {
-      res.status(409).json({ message: 'Email already registered' });
+      res.status(409).json({ message: 'Account already exists for this email and role' });
       return;
     }
 
@@ -88,13 +88,14 @@ router.post('/register', validate(registerSchema), async (req: AuthRequest, res:
 const loginSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().required(),
+  role: Joi.string().valid('teacher', 'student').required(),
 });
 
 router.post('/login', validate(loginSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
 
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email, role }).select('+password');
     if (!user) {
       res.status(401).json({ message: 'Invalid email or password' });
       return;

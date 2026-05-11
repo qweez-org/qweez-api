@@ -278,6 +278,16 @@ router.post('/:quizId/questions', auth, authorize('teacher'), validateObjectIdPa
       return;
     }
 
+    const quiz = await Quiz.findById(req.params.quizId);
+    if (!quiz) {
+      res.status(404).json({ message: 'Quiz not found' });
+      return;
+    }
+    if (quiz.status !== 'draft') {
+      res.status(400).json({ message: 'Quiz is not editable' });
+      return;
+    }
+
     const { text, type, points, options } = req.body;
     const count = await Question.countDocuments({ quizId: req.params.quizId });
     const question = new Question({
@@ -294,5 +304,160 @@ router.post('/:quizId/questions', auth, authorize('teacher'), validateObjectIdPa
     res.status(500).json({ message: 'Failed to add question' });
   }
 });
+
+// PATCH /api/quizzes/:quizId/questions/:questionId
+const updateQuestionSchema = Joi.object({
+  text: Joi.string().min(1).max(2000),
+  type: Joi.string().valid('multiple_choice', 'essay'),
+  points: Joi.number().integer().min(1).max(1000),
+  options: Joi.array().items(
+    Joi.object({
+      text: Joi.string().required(),
+      isCorrect: Joi.boolean().required(),
+    })
+  ),
+});
+
+router.patch(
+  '/:quizId/questions/:questionId',
+  auth,
+  authorize('teacher'),
+  validateObjectIdParam('quizId'),
+  validateObjectIdParam('questionId'),
+  validate(updateQuestionSchema),
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const hasAccess = await verifyQuizOwnership(req.params.quizId, req.user!._id.toString());
+      if (!hasAccess) {
+        res.status(403).json({ message: 'You do not have access to this quiz' });
+        return;
+      }
+
+      const quiz = await Quiz.findById(req.params.quizId);
+      if (!quiz) {
+        res.status(404).json({ message: 'Quiz not found' });
+        return;
+      }
+      if (quiz.status !== 'draft') {
+        res.status(400).json({ message: 'Quiz is not editable' });
+        return;
+      }
+
+      const question = await Question.findOneAndUpdate(
+        { _id: req.params.questionId, quizId: req.params.quizId },
+        req.body,
+        { new: true, runValidators: true }
+      );
+      if (!question) {
+        res.status(404).json({ message: 'Question not found' });
+        return;
+      }
+
+      res.json({ message: 'Question updated', question });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to update question' });
+    }
+  }
+);
+
+// DELETE /api/quizzes/:quizId/questions/:questionId
+router.delete(
+  '/:quizId/questions/:questionId',
+  auth,
+  authorize('teacher'),
+  validateObjectIdParam('quizId'),
+  validateObjectIdParam('questionId'),
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const hasAccess = await verifyQuizOwnership(req.params.quizId, req.user!._id.toString());
+      if (!hasAccess) {
+        res.status(403).json({ message: 'You do not have access to this quiz' });
+        return;
+      }
+
+      const quiz = await Quiz.findById(req.params.quizId);
+      if (!quiz) {
+        res.status(404).json({ message: 'Quiz not found' });
+        return;
+      }
+      if (quiz.status !== 'draft') {
+        res.status(400).json({ message: 'Quiz is not editable' });
+        return;
+      }
+
+      const question = await Question.findOneAndDelete({ _id: req.params.questionId, quizId: req.params.quizId });
+      if (!question) {
+        res.status(404).json({ message: 'Question not found' });
+        return;
+      }
+
+      res.json({ message: 'Question deleted' });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to delete question' });
+    }
+  }
+);
+
+// PUT /api/quizzes/:quizId/questions/reorder
+const reorderQuestionsSchema = Joi.object({
+  questionIds: Joi.array().items(Joi.string().required()).min(1).required(),
+});
+
+router.put(
+  '/:quizId/questions/reorder',
+  auth,
+  authorize('teacher'),
+  validateObjectIdParam('quizId'),
+  validate(reorderQuestionsSchema),
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const hasAccess = await verifyQuizOwnership(req.params.quizId, req.user!._id.toString());
+      if (!hasAccess) {
+        res.status(403).json({ message: 'You do not have access to this quiz' });
+        return;
+      }
+
+      const quiz = await Quiz.findById(req.params.quizId);
+      if (!quiz) {
+        res.status(404).json({ message: 'Quiz not found' });
+        return;
+      }
+      if (quiz.status !== 'draft') {
+        res.status(400).json({ message: 'Quiz is not editable' });
+        return;
+      }
+
+      const questionIds = req.body.questionIds as string[];
+
+      const existing = await Question.find({ quizId: req.params.quizId }).select('_id');
+      const existingIds = new Set(existing.map((q) => q._id.toString()));
+
+      if (questionIds.length !== existing.length) {
+        res.status(400).json({ message: 'questionIds must include all questions for this quiz' });
+        return;
+      }
+
+      for (const id of questionIds) {
+        if (!existingIds.has(id.toString())) {
+          res.status(400).json({ message: 'questionIds contains invalid questionId' });
+          return;
+        }
+      }
+
+      await Question.bulkWrite(
+        questionIds.map((id, idx) => ({
+          updateOne: {
+            filter: { _id: id, quizId: req.params.quizId },
+            update: { $set: { order: idx + 1 } },
+          },
+        }))
+      );
+
+      res.json({ message: 'Questions reordered' });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to reorder questions' });
+    }
+  }
+);
 
 export default router;

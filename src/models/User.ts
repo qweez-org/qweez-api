@@ -16,13 +16,15 @@ export interface IUser extends Document {
 const userSchema = new Schema<IUser>(
   {
     name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    email: { type: String, required: true, lowercase: true, trim: true },
     password: { type: String, select: false },
     role: { type: String, required: true, enum: ['teacher', 'student'] },
     avatar: { type: String },
   },
   { timestamps: true }
 );
+
+userSchema.index({ email: 1, role: 1 }, { unique: true });
 
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password') || !this.password) return next();
