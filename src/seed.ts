@@ -1,8 +1,4 @@
 import mongoose from 'mongoose';
-import { config } from 'dotenv';
-config();
-
-import { connectDB } from './config/db.js';
 import { User } from './models/User.js';
 import { Class } from './models/Class.js';
 import { Membership } from './models/Membership.js';
@@ -12,233 +8,443 @@ import { Question } from './models/Question.js';
 import { Attempt } from './models/Attempt.js';
 import { Answer } from './models/Answer.js';
 import { Notification } from './models/Notification.js';
-import { TeacherAssignment } from './models/TeacherAssignment.js';
+import { LiveResult } from './models/LiveResult.js';
+import { RefreshToken } from './models/RefreshToken.js';
+import { env } from './config/env.js';
+import { generateClassCode } from './utils/generateCode.js';
 
-const seed = async () => {
-  console.log('\n🌱 Qweez Seed Script');
-  console.log('⚠️  This will drop ALL existing data!\n');
+// ─── Helpers ──────────────────────────────────────────────────────────────
+function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
+function daysAgo(d: number) { return new Date(Date.now() - d * 86400000); }
+function randBetween(lo: number, hi: number) { return Math.floor(Math.random() * (hi - lo + 1)) + lo; }
 
-  await connectDB();
+async function seed() {
+  console.log('🌱 Connecting to database...');
+  await mongoose.connect(env.MONGODB_URI);
+  console.log('✅ Connected');
 
-  // Drop all collections
-  await User.deleteMany({});
-  await Class.deleteMany({});
-  await Membership.deleteMany({});
-  await Topic.deleteMany({});
-  await Quiz.deleteMany({});
-  await Question.deleteMany({});
-  await Attempt.deleteMany({});
-  await Answer.deleteMany({});
-  await Notification.deleteMany({});
-  await TeacherAssignment.deleteMany({});
-  console.log('🗑️  Cleared all collections');
-
-  // === USERS ===
-  const teacher1 = await User.create({ name: 'Pak Ahmad', email: 'ahmad@qweez.id', password: 'password123', role: 'teacher' });
-  const teacher2 = await User.create({ name: 'Bu Siti', email: 'siti@qweez.id', password: 'password123', role: 'teacher' });
-  const students = await User.create([
-    { name: 'Budi Santoso', email: 'budi@siswa.id', password: 'password123', role: 'student' },
-    { name: 'Dewi Lestari', email: 'dewi@siswa.id', password: 'password123', role: 'student' },
-    { name: 'Eko Prasetyo', email: 'eko@siswa.id', password: 'password123', role: 'student' },
-    { name: 'Fitri Handayani', email: 'fitri@siswa.id', password: 'password123', role: 'student' },
-    { name: 'Gunawan Wibowo', email: 'gunawan@siswa.id', password: 'password123', role: 'student' },
+  // Clear all collections
+  console.log('🗑️  Clearing existing data...');
+  await Promise.all([
+    User.deleteMany({}),
+    Class.deleteMany({}),
+    Membership.deleteMany({}),
+    Topic.deleteMany({}),
+    Quiz.deleteMany({}),
+    Question.deleteMany({}),
+    Attempt.deleteMany({}),
+    Answer.deleteMany({}),
+    Notification.deleteMany({}),
+    LiveResult.deleteMany({}),
+    RefreshToken.deleteMany({}),
   ]);
-  console.log(`👤 Created ${2} teachers and ${students.length} students`);
 
-  // === CLASSES ===
-  const class1 = await Class.create({ name: 'Kelas 10A — IPA', description: 'Kelas Ilmu Pengetahuan Alam semester ganjil', code: 'QWZ10A', owner: teacher1._id });
-  const class2 = await Class.create({ name: 'Kelas 11B — Bahasa', description: 'Kelas Bahasa Indonesia & Inggris', code: 'QWZ11B', owner: teacher1._id });
-  console.log(`🏫 Created ${2} classes`);
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  USERS
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('👨‍🏫 Creating 10 teachers...');
+  const teacherDefs = [
+    { name: 'Budi Santoso',      email: 'budi@teacher.com' },
+    { name: 'Siti Rahayu',       email: 'siti@teacher.com' },
+    { name: 'Ahmad Wijaya',      email: 'ahmad@teacher.com' },
+    { name: 'Dewi Lestari',      email: 'dewi.l@teacher.com' },
+    { name: 'Eko Prasetyo',      email: 'eko@teacher.com' },
+    { name: 'Fitriani Nuraini',  email: 'fitri@teacher.com' },
+    { name: 'Gunawan Saputra',   email: 'gunawan@teacher.com' },
+    { name: 'Heni Wulandari',    email: 'heni@teacher.com' },
+    { name: 'Irfan Hakim',       email: 'irfan@teacher.com' },
+    { name: 'Joko Susanto',      email: 'joko@teacher.com' },
+  ];
+  const teachers = await User.create(
+    teacherDefs.map((t) => ({ ...t, password: 'password123', role: 'teacher' }))
+  );
 
-  // === MEMBERSHIPS ===
-  // All 5 students approved in class1
-  for (const student of students) {
-    await Membership.create({ userId: student._id, classId: class1._id, role: 'student', status: 'approved' });
+  console.log('🎓 Creating 50 students...');
+  const studentNames = [
+    'Rina Putri','Dimas Prasetyo','Maya Sari','Fajar Nugroho','Ani Lestari',
+    'Reza Firmansyah','Dewi Anggraini','Hendra Gunawan','Nadia Safitri','Oki Pramana',
+    'Putri Handayani','Qori Amalia','Rahmat Hidayat','Sari Mulyani','Taufik Hidayat',
+    'Umi Kalsum','Vina Melati','Wahyu Setiawan','Xena Puspita','Yusuf Maulana',
+    'Zahra Ayu','Bayu Pratama','Citra Dewi','Dani Kurniawan','Elia Rahmawati',
+    'Farhan Ramadhan','Gita Nirmala','Hari Wibowo','Indah Permata','Jihan Aulia',
+    'Kevin Saputra','Lina Marlina','Miko Ardiansyah','Nisa Fitriani','Oscar Tanaka',
+    'Pandu Wijaya','Qiara Salsabila','Rizky Aditya','Sinta Purnama','Toni Hermawan',
+    'Ulfa Maharani','Vicky Ananda','Winda Lestari','Xander Mahendra','Yanti Susanti',
+    'Zaki Mubarak','Alya Rahma','Brama Satria','Cantika Dewi','Daffa Pratama',
+  ];
+  const students = await User.create(
+    studentNames.map((name, i) => ({
+      name,
+      email: `student${i + 1}@student.com`,
+      password: 'password123',
+      role: 'student',
+    }))
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  CLASSES  (15 classes spread across teachers)
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('🏫 Creating 15 classes...');
+  const classDefs = [
+    { name: 'Matematika Dasar',     desc: 'Aljabar, geometri, dan statistika dasar',     owner: 0 },
+    { name: 'Kalkulus I',           desc: 'Limit, turunan, dan integral',                owner: 0 },
+    { name: 'Fisika Dasar',        desc: 'Mekanika dan termodinamika',                  owner: 1 },
+    { name: 'Fisika Modern',       desc: 'Relativitas dan mekanika kuantum',            owner: 1 },
+    { name: 'Bahasa Indonesia',    desc: 'Tata bahasa, sastra, dan penulisan',          owner: 2 },
+    { name: 'Bahasa Inggris',      desc: 'Grammar, reading, dan writing',               owner: 2 },
+    { name: 'Sejarah Indonesia',   desc: 'Dari kerajaan Nusantara hingga Reformasi',    owner: 3 },
+    { name: 'Biologi SMA',        desc: 'Sel, genetika, ekologi, dan evolusi',          owner: 4 },
+    { name: 'Kimia Dasar',        desc: 'Atom, ikatan kimia, stoikiometri',             owner: 5 },
+    { name: 'Ekonomi Mikro',      desc: 'Permintaan, penawaran, dan pasar',             owner: 6 },
+    { name: 'Geografi',           desc: 'Litosfer, atmosfer, hidrosfer',                owner: 7 },
+    { name: 'Informatika',        desc: 'Algoritma, pemrograman dasar, dan basis data', owner: 8 },
+    { name: 'Seni Budaya',        desc: 'Seni rupa, musik, dan tari Nusantara',        owner: 9 },
+    { name: 'Pendidikan Kewarganegaraan', desc: 'Pancasila, UUD 1945, hak & kewajiban', owner: 3 },
+    { name: 'Sosiologi',          desc: 'Struktur sosial, konflik, dan perubahan',      owner: 6 },
+  ];
+  const classes = await Class.create(
+    classDefs.map((c) => ({
+      name: c.name,
+      description: c.desc,
+      code: generateClassCode(),
+      owner: teachers[c.owner]._id,
+    }))
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  MEMBERSHIPS
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('👥 Creating memberships...');
+  const membershipDocs: any[] = [];
+
+  // Spread students across classes: each class gets 12-30 students
+  const classStudentMap: number[][] = [];
+  for (let ci = 0; ci < classes.length; ci++) {
+    const size = randBetween(12, Math.min(30, students.length));
+    const offset = (ci * 7) % students.length;
+    const indices: number[] = [];
+    for (let s = 0; s < size; s++) {
+      indices.push((offset + s) % students.length);
+    }
+    classStudentMap.push([...new Set(indices)]);
+    for (const si of classStudentMap[ci]) {
+      membershipDocs.push({ userId: students[si]._id, classId: classes[ci]._id, role: 'student', status: 'approved' });
+    }
   }
-  // 3 students in class2 (2 pending)
-  await Membership.create({ userId: students[0]._id, classId: class2._id, role: 'student', status: 'approved' });
-  await Membership.create({ userId: students[1]._id, classId: class2._id, role: 'student', status: 'approved' });
-  await Membership.create({ userId: students[2]._id, classId: class2._id, role: 'student', status: 'approved' });
-  await Membership.create({ userId: students[3]._id, classId: class2._id, role: 'student', status: 'pending' });
-  await Membership.create({ userId: students[4]._id, classId: class2._id, role: 'student', status: 'pending' });
 
-  // Co-teacher: Bu Siti co-teaches in class1
-  await Membership.create({ userId: teacher2._id, classId: class1._id, role: 'co-teacher', status: 'approved' });
-  console.log(`🤝 Created memberships`);
+  // Pending join requests (8 total)
+  const pendingPairs = [
+    [42, 0],[43, 1],[44, 2],[45, 3],[46, 7],[47, 8],[48, 11],[49, 14],
+  ];
+  for (const [si, ci] of pendingPairs) {
+    if (!classStudentMap[ci].includes(si)) {
+      membershipDocs.push({ userId: students[si]._id, classId: classes[ci]._id, role: 'student', status: 'pending' });
+    }
+  }
 
-  // === TOPICS ===
-  const topicMath = await Topic.create({ name: 'Matematika', classId: class1._id });
-  const topicFisika = await Topic.create({ name: 'Fisika', classId: class1._id });
-  const topicBindo = await Topic.create({ name: 'Bahasa Indonesia', classId: class2._id });
-  console.log(`📚 Created 3 topics`);
+  // Co-teachers (6 assignments)
+  const coTeacherPairs = [[1,0],[2,1],[0,2],[4,3],[5,7],[8,9]];
+  for (const [ti, ci] of coTeacherPairs) {
+    membershipDocs.push({ userId: teachers[ti]._id, classId: classes[ci]._id, role: 'co-teacher', status: 'approved' });
+  }
 
-  // === TEACHER ASSIGNMENTS ===
-  await TeacherAssignment.create({ teacherId: teacher1._id, topicId: topicMath._id, classId: class1._id });
-  await TeacherAssignment.create({ teacherId: teacher2._id, topicId: topicFisika._id, classId: class1._id });
-  await TeacherAssignment.create({ teacherId: teacher1._id, topicId: topicBindo._id, classId: class2._id });
+  await Membership.create(membershipDocs);
 
-  // === QUIZZES ===
-  const quiz1 = await Quiz.create({
-    title: 'UTS Matematika Bab 1-3',
-    description: 'Ujian Tengah Semester — Aljabar dan Geometri',
-    topicId: topicMath._id,
-    mode: 'manual',
-    status: 'closed',
-    duration: 60,
-    attemptLimit: 1,
-  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  TOPICS  (~40 topics)
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('📁 Creating topics...');
+  const topicDefs: { name: string; ci: number }[] = [
+    // Matematika Dasar (0)
+    { name: 'Aljabar', ci: 0 },{ name: 'Geometri', ci: 0 },{ name: 'Statistika', ci: 0 },
+    // Kalkulus I (1)
+    { name: 'Limit Fungsi', ci: 1 },{ name: 'Turunan', ci: 1 },{ name: 'Integral', ci: 1 },
+    // Fisika Dasar (2)
+    { name: 'Mekanika', ci: 2 },{ name: 'Termodinamika', ci: 2 },{ name: 'Gelombang', ci: 2 },
+    // Fisika Modern (3)
+    { name: 'Relativitas Khusus', ci: 3 },{ name: 'Mekanika Kuantum', ci: 3 },
+    // Bahasa Indonesia (4)
+    { name: 'Tata Bahasa', ci: 4 },{ name: 'Sastra', ci: 4 },{ name: 'Penulisan Kreatif', ci: 4 },
+    // Bahasa Inggris (5)
+    { name: 'Grammar', ci: 5 },{ name: 'Reading Comprehension', ci: 5 },{ name: 'Essay Writing', ci: 5 },
+    // Sejarah Indonesia (6)
+    { name: 'Kerajaan Hindu-Buddha', ci: 6 },{ name: 'Kolonialisme', ci: 6 },{ name: 'Kemerdekaan', ci: 6 },
+    // Biologi SMA (7)
+    { name: 'Sel & Jaringan', ci: 7 },{ name: 'Genetika', ci: 7 },{ name: 'Ekologi', ci: 7 },
+    // Kimia Dasar (8)
+    { name: 'Struktur Atom', ci: 8 },{ name: 'Ikatan Kimia', ci: 8 },{ name: 'Stoikiometri', ci: 8 },
+    // Ekonomi Mikro (9)
+    { name: 'Permintaan & Penawaran', ci: 9 },{ name: 'Elastisitas', ci: 9 },{ name: 'Struktur Pasar', ci: 9 },
+    // Geografi (10)
+    { name: 'Litosfer', ci: 10 },{ name: 'Atmosfer', ci: 10 },{ name: 'Hidrosfer', ci: 10 },
+    // Informatika (11)
+    { name: 'Algoritma', ci: 11 },{ name: 'Pemrograman Dasar', ci: 11 },{ name: 'Basis Data', ci: 11 },
+    // Seni Budaya (12)
+    { name: 'Seni Rupa', ci: 12 },{ name: 'Seni Musik', ci: 12 },
+    // PKN (13)
+    { name: 'Pancasila', ci: 13 },{ name: 'UUD 1945', ci: 13 },
+    // Sosiologi (14)
+    { name: 'Struktur Sosial', ci: 14 },{ name: 'Perubahan Sosial', ci: 14 },
+  ];
+  const topics = await Topic.create(
+    topicDefs.map((t) => ({ name: t.name, classId: classes[t.ci]._id }))
+  );
 
-  const quiz2 = await Quiz.create({
-    title: 'Kuis Harian — Persamaan Linear',
-    topicId: topicMath._id,
-    mode: 'manual',
-    status: 'open',
-    duration: 20,
-    attemptLimit: 2,
-  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  QUIZZES  (~60 quizzes)
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('📝 Creating quizzes...');
+  const statuses: Array<{ mode: string; status: string }> = [
+    { mode: 'manual', status: 'open' },
+    { mode: 'manual', status: 'open' },
+    { mode: 'manual', status: 'closed' },
+    { mode: 'manual', status: 'draft' },
+    { mode: 'scheduled', status: 'scheduled' },
+  ];
 
-  const quiz3 = await Quiz.create({
-    title: 'Ujian Hukum Newton',
-    description: 'Hukum Newton I, II, III dan penerapan',
-    topicId: topicFisika._id,
-    mode: 'live',
-    status: 'draft',
-    duration: 45,
-    attemptLimit: 1,
-  });
+  const quizDefs: any[] = [];
+  const quizTopicIndex: number[] = []; // track which topic each quiz belongs to
 
-  const quiz4 = await Quiz.create({
-    title: 'Kuis Sastra Indonesia',
-    topicId: topicBindo._id,
-    mode: 'manual',
-    status: 'closed',
-    duration: 30,
-    attemptLimit: 1,
-  });
-  console.log(`📝 Created 4 quizzes`);
+  for (let ti = 0; ti < topics.length; ti++) {
+    // 1-2 quizzes per topic
+    const count = randBetween(1, 2);
+    for (let q = 0; q < count; q++) {
+      const st = pick(statuses);
+      const dur = pick([10, 15, 20, 25, 30]);
+      const quiz: any = {
+        title: `${topics[ti].name} - Kuis ${q + 1}`,
+        topicId: topics[ti]._id,
+        mode: st.mode,
+        status: st.status,
+        duration: dur,
+        attemptLimit: pick([1, 1, 2, 3]),
+        shuffleQuestions: Math.random() > 0.7,
+        allowBacktrack: Math.random() > 0.2,
+      };
+      if (st.mode === 'scheduled') {
+        quiz.scheduledOpen = new Date(Date.now() + 86400000);
+        quiz.scheduledClose = new Date(Date.now() + 3 * 86400000);
+      }
+      quizDefs.push(quiz);
+      quizTopicIndex.push(ti);
+    }
+  }
+  const quizzes = await Quiz.create(quizDefs);
+  console.log(`   → ${quizzes.length} quizzes created`);
 
-  // === QUESTIONS ===
-  const q1a = await Question.create({
-    quizId: quiz1._id, type: 'multiple_choice', text: 'Berapakah hasil dari 2x + 3 = 11?', points: 10, order: 0,
-    options: [{ text: 'x = 3', isCorrect: false }, { text: 'x = 4', isCorrect: true }, { text: 'x = 5', isCorrect: false }, { text: 'x = 6', isCorrect: false }],
-  });
-  const q1b = await Question.create({
-    quizId: quiz1._id, type: 'multiple_choice', text: 'Luas segitiga dengan alas 6 dan tinggi 8 adalah...', points: 10, order: 1,
-    options: [{ text: '24', isCorrect: true }, { text: '48', isCorrect: false }, { text: '14', isCorrect: false }, { text: '36', isCorrect: false }],
-  });
-  const q1c = await Question.create({
-    quizId: quiz1._id, type: 'multiple_choice', text: 'Jika f(x) = 3x² + 2, maka f(2) = ...', points: 10, order: 2,
-    options: [{ text: '8', isCorrect: false }, { text: '14', isCorrect: true }, { text: '12', isCorrect: false }, { text: '16', isCorrect: false }],
-  });
-  const q1d = await Question.create({
-    quizId: quiz1._id, type: 'essay', text: 'Jelaskan langkah-langkah menyelesaikan persamaan kuadrat menggunakan rumus abc!', points: 20, order: 3,
-    options: [],
-  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  QUESTIONS (3-5 per quiz)
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('❓ Creating questions...');
+  const mcTemplates = [
+    { t: 'Manakah pernyataan berikut yang benar tentang {topic}?', opts: ['Pernyataan A (benar)', 'Pernyataan B', 'Pernyataan C', 'Pernyataan D'] },
+    { t: 'Apa yang dimaksud dengan konsep utama dalam {topic}?', opts: ['Definisi yang tepat', 'Definisi tidak tepat 1', 'Definisi tidak tepat 2', 'Definisi tidak tepat 3'] },
+    { t: 'Contoh penerapan {topic} dalam kehidupan sehari-hari adalah...', opts: ['Contoh tepat', 'Contoh kurang tepat 1', 'Contoh kurang tepat 2', 'Contoh kurang tepat 3'] },
+    { t: 'Siapa tokoh yang paling berkaitan dengan {topic}?', opts: ['Tokoh yang benar', 'Tokoh lain 1', 'Tokoh lain 2', 'Tokoh lain 3'] },
+    { t: 'Rumus atau prinsip dasar dari {topic} adalah...', opts: ['Rumus benar', 'Rumus salah 1', 'Rumus salah 2', 'Rumus salah 3'] },
+  ];
+  const essayTemplates = [
+    'Jelaskan konsep utama dari {topic} dengan kata-kata sendiri.',
+    'Berikan 3 contoh penerapan {topic} dalam kehidupan nyata.',
+    'Bandingkan dan kontraskan dua aspek penting dalam {topic}.',
+    'Analisislah hubungan antara {topic} dengan bidang ilmu lain.',
+  ];
 
-  const q2a = await Question.create({
-    quizId: quiz2._id, type: 'multiple_choice', text: 'Penyelesaian dari 3x - 7 = 8 adalah...', points: 10, order: 0,
-    options: [{ text: 'x = 5', isCorrect: true }, { text: 'x = 3', isCorrect: false }, { text: 'x = 7', isCorrect: false }, { text: 'x = 1', isCorrect: false }],
-  });
-  const q2b = await Question.create({
-    quizId: quiz2._id, type: 'multiple_choice', text: 'Gradien garis y = 2x + 5 adalah...', points: 10, order: 1,
-    options: [{ text: '5', isCorrect: false }, { text: '2', isCorrect: true }, { text: '7', isCorrect: false }, { text: '1', isCorrect: false }],
-  });
-
-  const q3a = await Question.create({
-    quizId: quiz3._id, type: 'multiple_choice', text: 'Hukum Newton I disebut juga...', points: 10, order: 0,
-    options: [{ text: 'Hukum Aksi-Reaksi', isCorrect: false }, { text: 'Hukum Inersia', isCorrect: true }, { text: 'Hukum Percepatan', isCorrect: false }, { text: 'Hukum Gravitasi', isCorrect: false }],
-  });
-  const q3b = await Question.create({
-    quizId: quiz3._id, type: 'multiple_choice', text: 'Rumus Hukum Newton II adalah...', points: 10, order: 1,
-    options: [{ text: 'F = m × a', isCorrect: true }, { text: 'F = m × v', isCorrect: false }, { text: 'F = m × g', isCorrect: false }, { text: 'F = m / a', isCorrect: false }],
-  });
-
-  const q4a = await Question.create({
-    quizId: quiz4._id, type: 'multiple_choice', text: 'Siapakah penulis novel "Laskar Pelangi"?', points: 10, order: 0,
-    options: [{ text: 'Pramoedya Ananta Toer', isCorrect: false }, { text: 'Andrea Hirata', isCorrect: true }, { text: 'Tere Liye', isCorrect: false }, { text: 'Dee Lestari', isCorrect: false }],
-  });
-  const q4b = await Question.create({
-    quizId: quiz4._id, type: 'multiple_choice', text: 'Majas yang membandingkan dua hal secara langsung disebut...', points: 10, order: 1,
-    options: [{ text: 'Personifikasi', isCorrect: false }, { text: 'Hiperbola', isCorrect: false }, { text: 'Metafora', isCorrect: true }, { text: 'Litotes', isCorrect: false }],
-  });
-  console.log(`❓ Created ${10} questions`);
-
-  // === ATTEMPTS & ANSWERS (for quiz1 and quiz4 — closed quizzes) ===
-  const createAttempt = async (userId: mongoose.Types.ObjectId, quizId: mongoose.Types.ObjectId, questions: any[], answerMap: Record<number, string>) => {
-    const startedAt = new Date(Date.now() - 30 * 60 * 1000);
-    const submittedAt = new Date(Date.now() - 5 * 60 * 1000);
-
-    const attempt = await Attempt.create({
-      userId, quizId, status: 'submitted', startedAt, submittedAt,
-    });
-
-    let score = 0;
-    let totalPoints = 0;
-
-    for (let i = 0; i < questions.length; i++) {
-      const q = questions[i];
-      totalPoints += q.points;
-      const answerText = answerMap[i] || '';
-
-      if (q.type === 'multiple_choice') {
-        const correctOption = q.options.find((o: any) => o.isCorrect);
-        const isCorrect = correctOption && answerText === correctOption.text;
-        const pts = isCorrect ? q.points : 0;
-        if (isCorrect) score += q.points;
-
-        await Answer.create({
-          attemptId: attempt._id, questionId: q._id, answer: answerText, isCorrect, points: pts,
+  const questionDocs: any[] = [];
+  for (let qi = 0; qi < quizzes.length; qi++) {
+    const quiz = quizzes[qi];
+    const topicName = topics[quizTopicIndex[qi]].name;
+    const qCount = randBetween(3, 5);
+    for (let qo = 0; qo < qCount; qo++) {
+      if (qo === qCount - 1 && Math.random() > 0.4) {
+        // Essay question (last question, ~60% chance)
+        const tmpl = pick(essayTemplates);
+        questionDocs.push({
+          quizId: quiz._id,
+          type: 'essay',
+          text: tmpl.replace('{topic}', topicName),
+          points: pick([15, 20, 25]),
+          order: qo,
+          options: [],
         });
       } else {
-        // Essay — leave ungraded
-        await Answer.create({
-          attemptId: attempt._id, questionId: q._id, answer: answerText,
+        const tmpl = pick(mcTemplates);
+        questionDocs.push({
+          quizId: quiz._id,
+          type: 'multiple_choice',
+          text: tmpl.t.replace('{topic}', topicName),
+          points: 10,
+          order: qo,
+          options: tmpl.opts.map((text, i) => ({ text, isCorrect: i === 0 })),
         });
       }
     }
+  }
+  const questions = await Question.create(questionDocs);
+  console.log(`   → ${questions.length} questions created`);
 
-    attempt.score = score;
-    attempt.totalPoints = totalPoints;
-    await attempt.save();
-    return attempt;
-  };
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  ATTEMPTS & ANSWERS
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('📊 Creating attempts and answers...');
+  const attemptBulk: any[] = [];
+  const answerBulk: any[] = [];
 
-  const quiz1Questions = [q1a, q1b, q1c, q1d];
+  // Build quiz → classIndex map via topicDefs
+  function classIndexForQuiz(qi: number): number {
+    return topicDefs[quizTopicIndex[qi]].ci;
+  }
 
-  // Student attempts for quiz1
-  await createAttempt(students[0]._id, quiz1._id, quiz1Questions, { 0: 'x = 4', 1: '24', 2: '14', 3: 'Gunakan rumus x = (-b ± √(b²-4ac)) / 2a' });
-  await createAttempt(students[1]._id, quiz1._id, quiz1Questions, { 0: 'x = 4', 1: '24', 2: '12', 3: 'Menggunakan rumus abc' });
-  await createAttempt(students[2]._id, quiz1._id, quiz1Questions, { 0: 'x = 3', 1: '24', 2: '14', 3: 'Rumus kuadrat abc' });
-  await createAttempt(students[3]._id, quiz1._id, quiz1Questions, { 0: 'x = 4', 1: '48', 2: '14', 3: 'Substitusi dan diskriminan' });
-  await createAttempt(students[4]._id, quiz1._id, quiz1Questions, { 0: 'x = 5', 1: '48', 2: '12', 3: 'Tidak tahu' });
+  for (let qi = 0; qi < quizzes.length; qi++) {
+    const quiz = quizzes[qi];
+    if (quiz.status === 'draft' || quiz.status === 'scheduled') continue;
 
-  const quiz4Questions = [q4a, q4b];
+    const ci = classIndexForQuiz(qi);
+    const enrolled = classStudentMap[ci].map((si) => students[si]);
+    const quizQs = questions.filter((q: any) => q.quizId.toString() === quiz._id.toString());
+    if (quizQs.length === 0) continue;
 
-  // Student attempts for quiz4
-  await createAttempt(students[0]._id, quiz4._id, quiz4Questions, { 0: 'Andrea Hirata', 1: 'Metafora' });
-  await createAttempt(students[1]._id, quiz4._id, quiz4Questions, { 0: 'Andrea Hirata', 1: 'Personifikasi' });
-  await createAttempt(students[2]._id, quiz4._id, quiz4Questions, { 0: 'Tere Liye', 1: 'Metafora' });
+    // 55-90% of enrolled students attempt
+    const attemptCount = Math.max(1, Math.ceil(enrolled.length * (0.55 + Math.random() * 0.35)));
+    const attemptStudents = enrolled.slice(0, attemptCount);
 
-  console.log(`📊 Created attempts with scores`);
+    for (const student of attemptStudents) {
+      const startedAt = daysAgo(randBetween(1, 14));
+      const submittedAt = new Date(startedAt.getTime() + randBetween(3, quiz.duration) * 60000);
 
-  // === NOTIFICATIONS ===
-  await Notification.create([
-    { userId: students[0]._id, type: 'join_approved', title: 'Bergabung ke kelas', message: 'Anda diterima di kelas Kelas 10A — IPA', classId: class1._id, isRead: true },
-    { userId: students[3]._id, type: 'quiz_result', title: 'Hasil Kuis', message: 'Hasil UTS Matematika Bab 1-3: 20/50', quizId: quiz1._id, isRead: false },
-    { userId: teacher1._id, type: 'quiz_new', title: 'Kuis dibuat', message: 'Kuis "Kuis Harian — Persamaan Linear" berhasil dibuat', quizId: quiz2._id, isRead: true },
-  ]);
-  console.log(`🔔 Created notifications`);
+      let totalPts = 0;
+      let earnedPts = 0;
+      const tempAnswers: any[] = [];
 
-  console.log('\n✅ Seed complete!\n');
-  console.log('📋 Login credentials:');
-  console.log('   Teacher: ahmad@qweez.id / password123');
-  console.log('   Teacher: siti@qweez.id / password123');
-  console.log('   Student: budi@siswa.id / password123');
-  console.log('   (all students use password123)\n');
+      for (const q of quizQs) {
+        totalPts += q.points;
+        if (q.type === 'multiple_choice') {
+          const correct = Math.random() > 0.3;
+          const correctOpt = q.options.find((o: any) => o.isCorrect);
+          const wrongOpts = q.options.filter((o: any) => !o.isCorrect);
+          const chosen = correct
+            ? (correctOpt?.text || q.options[0]?.text || '')
+            : (pick(wrongOpts)?.text || '');
+          const pts = correct ? q.points : 0;
+          earnedPts += pts;
+          tempAnswers.push({ questionId: q._id, answer: chosen, isCorrect: correct, points: pts });
+        } else {
+          const pts = Math.floor(Math.random() * (q.points + 1));
+          earnedPts += pts;
+          tempAnswers.push({ questionId: q._id, answer: 'Jawaban esai dari siswa.', isCorrect: pts >= q.points * 0.5, points: pts });
+        }
+      }
+
+      attemptBulk.push({
+        userId: student._id,
+        quizId: quiz._id,
+        status: 'submitted',
+        startedAt,
+        submittedAt,
+        score: earnedPts,
+        totalPoints: totalPts,
+        _tempAnswers: tempAnswers,
+      });
+    }
+  }
+
+  // Insert attempts
+  const attempts = await Attempt.create(attemptBulk.map(({ _tempAnswers, ...rest }) => rest));
+
+  // Insert answers
+  for (let i = 0; i < attempts.length; i++) {
+    const ans = attemptBulk[i]._tempAnswers || [];
+    for (const a of ans) {
+      answerBulk.push({ attemptId: attempts[i]._id, ...a });
+    }
+  }
+  if (answerBulk.length > 0) {
+    // Insert in batches to avoid memory issues
+    const BATCH = 500;
+    for (let i = 0; i < answerBulk.length; i += BATCH) {
+      await Answer.insertMany(answerBulk.slice(i, i + BATCH));
+    }
+  }
+  console.log(`   → ${attempts.length} attempts, ${answerBulk.length} answers`);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  NOTIFICATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('🔔 Creating notifications...');
+  const notifDocs: any[] = [];
+
+  // join_approved for every approved student membership
+  for (let ci = 0; ci < classes.length; ci++) {
+    for (const si of classStudentMap[ci]) {
+      notifDocs.push({
+        userId: students[si]._id,
+        type: 'join_approved',
+        title: `Bergabung ke ${classes[ci].name}`,
+        message: `Permintaan bergabung ke kelas "${classes[ci].name}" telah disetujui.`,
+        classId: classes[ci]._id,
+        isRead: Math.random() > 0.25,
+      });
+    }
+  }
+
+  // quiz_open for open quizzes
+  for (let qi = 0; qi < quizzes.length; qi++) {
+    if (quizzes[qi].status !== 'open' && quizzes[qi].status !== 'closed') continue;
+    const ci = classIndexForQuiz(qi);
+    for (const si of classStudentMap[ci]) {
+      notifDocs.push({
+        userId: students[si]._id,
+        type: 'quiz_open',
+        title: `Kuis Dibuka: ${quizzes[qi].title}`,
+        message: `Kuis "${quizzes[qi].title}" sekarang tersedia.`,
+        quizId: quizzes[qi]._id,
+        isRead: Math.random() > 0.4,
+      });
+    }
+  }
+
+  // join_request notifications for pending members → class owner
+  for (const [si, ci] of pendingPairs) {
+    const ownerIdx = classDefs[ci].owner;
+    notifDocs.push({
+      userId: teachers[ownerIdx]._id,
+      type: 'join_request',
+      title: 'Permintaan Bergabung',
+      message: `${students[si].name} ingin bergabung ke kelas "${classes[ci].name}".`,
+      classId: classes[ci]._id,
+      isRead: false,
+    });
+  }
+
+  // Insert notifications in batches
+  const NBATCH = 500;
+  for (let i = 0; i < notifDocs.length; i += NBATCH) {
+    await Notification.insertMany(notifDocs.slice(i, i + NBATCH));
+  }
+  console.log(`   → ${notifDocs.length} notifications`);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  SUMMARY
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('\n✅ Seed complete!');
+  console.log(`   Teachers:      ${teachers.length}`);
+  console.log(`   Students:      ${students.length}`);
+  console.log(`   Classes:       ${classes.length}`);
+  console.log(`   Topics:        ${topics.length}`);
+  console.log(`   Quizzes:       ${quizzes.length}`);
+  console.log(`   Questions:     ${questions.length}`);
+  console.log(`   Attempts:      ${attempts.length}`);
+  console.log(`   Answers:       ${answerBulk.length}`);
+  console.log(`   Notifications: ${notifDocs.length}`);
+  console.log(`   Memberships:   ${membershipDocs.length}`);
+  console.log('\n📌 Login credentials (password: password123):');
+  console.log('   Teachers: budi@teacher.com, siti@teacher.com, ahmad@teacher.com, ...');
+  console.log('   Students: student1@student.com through student50@student.com');
+  console.log('   First student: student1@student.com (Rina Putri)');
 
   await mongoose.disconnect();
   process.exit(0);
-};
+}
 
 seed().catch((err) => {
   console.error('❌ Seed failed:', err);
