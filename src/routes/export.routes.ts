@@ -51,13 +51,13 @@ router.get('/classes/:classId/export/grades', auth, authorize('teacher'), valida
       const user = m.userId as any;
       const scores = quizzes.map((q) => {
         const attempt = attempts.find((a) => a.userId.toString() === user._id.toString() && a.quizId.toString() === q._id.toString());
-        return attempt ? sanitizeCsvCell(`${attempt.score ?? 0}/${attempt.totalPoints ?? 0}`) : '-';
+        return attempt && attempt.totalPoints ? sanitizeCsvCell((((attempt.score ?? 0) / attempt.totalPoints) * 100).toFixed(2).replace(/\.00$/, '')) : '-';
       });
       const numericScores = quizzes.map((q) => {
         const attempt = attempts.find((a) => a.userId.toString() === user._id.toString() && a.quizId.toString() === q._id.toString());
         return attempt && attempt.totalPoints ? Math.round(((attempt.score ?? 0) / attempt.totalPoints) * 100) : null;
       }).filter((s) => s !== null) as number[];
-      const avg = numericScores.length > 0 ? Math.round(numericScores.reduce((a, b) => a + b, 0) / numericScores.length) : '-';
+      const avg = numericScores.length > 0 ? (numericScores.reduce((a, b) => a + b, 0) / numericScores.length).toFixed(2).replace(/\.00$/, '') : '-';
       return [sanitizeCsvCell(user.name), sanitizeCsvCell(user.email), ...scores, sanitizeCsvCell(avg)].join(',');
     });
 
@@ -92,12 +92,12 @@ router.get('/quizzes/:quizId/export/results', auth, authorize('teacher'), valida
       .populate('userId', 'name email')
       .sort({ score: -1 });
 
-    const header = ['Nama', 'Email', 'Skor', 'Total', 'Persentase', 'Waktu Mulai', 'Waktu Selesai'].map(sanitizeCsvCell).join(',');
+    const header = ['Nama', 'Email', 'Nilai Persentase', 'Waktu Mulai', 'Waktu Selesai'].map(sanitizeCsvCell).join(',');
     const rows = attempts.map((a) => {
       const user = a.userId as any;
-      const pct = a.totalPoints ? Math.round(((a.score ?? 0) / a.totalPoints) * 100) : 0;
+      const pct = a.totalPoints ? (((a.score ?? 0) / a.totalPoints) * 100).toFixed(2).replace(/\.00$/, '') : 0;
       return [
-        sanitizeCsvCell(user.name), sanitizeCsvCell(user.email), a.score ?? 0, a.totalPoints ?? 0, `${pct}%`,
+        sanitizeCsvCell(user.name), sanitizeCsvCell(user.email), pct,
         a.startedAt?.toISOString() || '', a.submittedAt?.toISOString() || '',
       ].join(',');
     });

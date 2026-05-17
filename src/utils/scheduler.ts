@@ -1,21 +1,66 @@
+import { Server as SocketIOServer } from 'socket.io';
 import { Quiz } from '../models/Quiz.js';
+import { Topic } from '../models/Topic.js';
+import { Membership } from '../models/Membership.js';
+import { Notification } from '../models/Notification.js';
 import { Attempt } from '../models/Attempt.js';
 import { scoreAttempt } from './scoring.js';
 
-export const startScheduler = (): void => {
+export const startScheduler = (io?: SocketIOServer): void => {
   console.log('⏰ Quiz scheduler started (checking every 60s)');
 
   setInterval(async () => {
     try {
       const now = new Date();
 
-      // Open scheduled quizzes
-      const toOpen = await Quiz.updateMany(
-        { status: 'scheduled', scheduledOpen: { $lte: now } },
-        { $set: { status: 'open' } }
-      );
-      if (toOpen.modifiedCount > 0) {
-        console.log(`⏰ Scheduler: Opened ${toOpen.modifiedCount} scheduled quiz(es)`);
+      // Find quizzes that should be opened
+      const quizzesToOpen = await Quiz.find({
+        status: 'scheduled',
+        scheduledOpen: { $lte: now },
+      });
+
+      if (quizzesToOpen.length > 0) {
+        const quizIds = quizzesToOpen.map((q) => q._id);
+        await Quiz.updateMany({ _id: { $in: quizIds } }, { $set: { status: 'open' } });
+        console.log(`⏰ Scheduler: Opened ${quizzesToOpen.length} scheduled quiz(es)`);
+
+        // Notify enrolled students
+        for (const quiz of quizzesToOpen) {
+          try {
+            const topic = await Topic.findById(quiz.topicId);
+            if (!topic) continue;
+
+            const members = await Membership.find({
+              classId: topic.classId,
+              role: 'student',
+              status: 'approved',
+            });
+
+            // Create notifications
+            const notifDocs = members.map((m) => ({
+              userId: m.userId,
+              type: 'quiz_open',
+              title: `Kuis Dibuka: ${quiz.title}`,
+              message: `Kuis "${quiz.title}" sekarang tersedia.`,
+              quizId: quiz._id,
+              isRead: false,
+            }));
+            if (notifDocs.length > 0) {
+              await Notification.insertMany(notifDocs);
+            }
+
+            // Emit socket event to class room
+            if (io) {
+              io.to(`class:${topic.classId}`).emit('quiz:opened', {
+                quizId: quiz._id,
+                title: quiz.title,
+                topicId: quiz.topicId,
+              });
+            }
+          } catch (err) {
+            console.error(`⏰ Scheduler: Failed to notify for quiz ${quiz._id}:`, err);
+          }
+        }
       }
 
       // Close expired quizzes — first find them so we can auto-submit attempts

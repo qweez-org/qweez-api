@@ -33,7 +33,7 @@ export const setupSocketIO = (io: SocketIOServer): void => {
 
   io.on('connection', (socket) => {
     const user = (socket as any).user;
-    console.log(`🔌 Socket connected: ${user.name} (${user._id})`);
+
 
     // Fix #31: Verify membership before allowing class room join
     socket.on('join:class', async (classId: string) => {
@@ -98,7 +98,7 @@ export const setupSocketIO = (io: SocketIOServer): void => {
     registerLiveQuizHandlers(io, socket);
 
     socket.on('disconnect', () => {
-      console.log(`🔌 Socket disconnected: ${user.name}`);
+
     });
   });
 };

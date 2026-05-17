@@ -29,7 +29,7 @@ router.get('/classes/:classId', auth, validateObjectIdParam('classId'), async (r
 
     const topics = await Topic.find({ classId: req.params.classId });
     const topicIds = topics.map((t) => t._id);
-    const quizzes = await Quiz.find({ topicId: { $in: topicIds } });
+    const quizzes = await Quiz.find({ topicId: { $in: topicIds }, status: { $nin: ['draft', 'scheduled'] } });
     const quizIds = quizzes.map((q) => q._id);
 
     let filter: any = { quizId: { $in: quizIds }, status: 'submitted' };

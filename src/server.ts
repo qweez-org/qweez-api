@@ -6,6 +6,7 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import os from 'os';
 
 import { env } from './config/env.js';
 import { connectDB } from './config/db.js';
@@ -34,11 +35,44 @@ const allowedOrigins = env.CORS_ORIGIN
   .map((o) => o.trim())
   .filter(Boolean);
 
+const isLocalhostOrigin = (origin: string) => {
+  try {
+    const url = new URL(origin);
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '10.0.2.2';
+  } catch {
+    return false;
+  }
+};
+
+const isLocalNetworkOrigin = (origin: string) => {
+  try {
+    const url = new URL(origin);
+    const parts = url.hostname.split('.');
+    if (parts.length !== 4) return false;
+    const [a, b] = parts.map(Number);
+    // 192.168.x.x or 10.x.x.x
+    if (a === 192 && b === 168) return true;
+    if (a === 10) return true;
+    // 172.16-31.x.x
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    return false;
+  } catch {
+    return false;
+  }
+};
+
+const isDevAllowedOrigin = (origin: string) => {
+  return isLocalhostOrigin(origin) || isLocalNetworkOrigin(origin);
+};
+
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     // Allow non-browser requests (no Origin header), e.g. curl, server-to-server
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
+    // In development allow any localhost or local network origin regardless of port
+    if (env.NODE_ENV === 'development' && isDevAllowedOrigin(origin)) return callback(null, true);
+    console.warn(`⚠️ CORS blocked origin: ${origin}`);
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -50,8 +84,15 @@ const httpServer = createServer(app);
 // Socket.IO
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, cb) => {
+      // Allow native clients (no Origin header), e.g. Flutter mobile app
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      if (env.NODE_ENV === 'development' && isDevAllowedOrigin(origin)) return cb(null, true);
+      return cb(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 app.set('io', io);
@@ -63,10 +104,10 @@ app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting
+// Rate limiting (higher limit in development)
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
+  windowMs: env.NODE_ENV === 'development' ? 1 * 60 * 1000 : 15 * 60 * 1000,
+  max: env.NODE_ENV === 'development' ? 2000 : 200,
   message: { message: 'Too many requests, please try again later.' },
 });
 app.use('/api/', limiter);
@@ -109,12 +150,35 @@ const start = async (): Promise<void> => {
     io.adapter(createAdapter(pubClient, subClient));
   }
 
-  startScheduler();
+  startScheduler(io);
 
-  httpServer.listen(env.PORT, () => {
-    console.log(`\n🚀 Qweez API running on http://localhost:${env.PORT}`);
+  httpServer.listen(env.PORT, '0.0.0.0', () => {
+    const localIP = getLocalIP();
+    console.log(`\n🚀 Qweez API running:`);
+    console.log(`   Local:    http://localhost:${env.PORT}`);
+    if (localIP) {
+      console.log(`   Network:  http://${localIP}:${env.PORT}`);
+    }
     console.log(`📡 Socket.IO ready\n`);
   });
 };
+
+function getLocalIP(): string | null {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    const iface = interfaces[name];
+    if (!iface) continue;
+    for (const entry of iface) {
+      if (entry.family === 'IPv4' && !entry.internal) {
+        const parts = entry.address.split('.');
+        const [a, b] = parts.map(Number);
+        if (a === 192 && b === 168) return entry.address;
+        if (a === 10) return entry.address;
+        if (a === 172 && b >= 16 && b <= 31) return entry.address;
+      }
+    }
+  }
+  return null;
+}
 
 start();

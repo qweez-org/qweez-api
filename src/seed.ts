@@ -8,7 +8,7 @@ import { Question } from './models/Question.js';
 import { Attempt } from './models/Attempt.js';
 import { Answer } from './models/Answer.js';
 import { Notification } from './models/Notification.js';
-import { LiveResult } from './models/LiveResult.js';
+
 import { RefreshToken } from './models/RefreshToken.js';
 import { env } from './config/env.js';
 import { generateClassCode } from './utils/generateCode.js';
@@ -23,7 +23,6 @@ async function seed() {
   await mongoose.connect(env.MONGODB_URI);
   console.log('✅ Connected');
 
-  // Clear all collections
   console.log('🗑️  Clearing existing data...');
   await Promise.all([
     User.deleteMany({}),
@@ -35,72 +34,122 @@ async function seed() {
     Attempt.deleteMany({}),
     Answer.deleteMany({}),
     Notification.deleteMany({}),
-    LiveResult.deleteMany({}),
+
     RefreshToken.deleteMany({}),
   ]);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  USERS
+  //  TEACHERS — diverse backgrounds
   // ═══════════════════════════════════════════════════════════════════════════
-  console.log('👨‍🏫 Creating 10 teachers...');
+  console.log('👨‍🏫 Creating teachers...');
   const teacherDefs = [
-    { name: 'Budi Santoso',      email: 'budi@teacher.com' },
-    { name: 'Siti Rahayu',       email: 'siti@teacher.com' },
-    { name: 'Ahmad Wijaya',      email: 'ahmad@teacher.com' },
-    { name: 'Dewi Lestari',      email: 'dewi.l@teacher.com' },
-    { name: 'Eko Prasetyo',      email: 'eko@teacher.com' },
-    { name: 'Fitriani Nuraini',  email: 'fitri@teacher.com' },
-    { name: 'Gunawan Saputra',   email: 'gunawan@teacher.com' },
-    { name: 'Heni Wulandari',    email: 'heni@teacher.com' },
-    { name: 'Irfan Hakim',       email: 'irfan@teacher.com' },
-    { name: 'Joko Susanto',      email: 'joko@teacher.com' },
+    // Scenario A: High-school teacher using Qweez for her math & physics classes
+    { name: 'Siti Rahayu',        email: 'siti.rahayu@gmail.com' },
+    // Scenario B: University lecturer – one class only
+    { name: 'Dr. Budi Santoso',   email: 'budi.santoso@unpad.ac.id' },
+    // Scenario C: Tutoring center "Bintang Pelajar" — owner + staff
+    { name: 'Ahmad Wijaya',       email: 'ahmad@bintangpelajar.id' },
+    { name: 'Dewi Lestari',       email: 'dewi@bintangpelajar.id' },
+    // Scenario D: Freelance English tutor
+    { name: 'Rina Kartika',       email: 'rina.kartika@outlook.com' },
+    // Scenario E: Corporate trainer
+    { name: 'Eko Prasetyo',       email: 'eko.prasetyo@tigerhr.co.id' },
+    // Scenario F: Community coding bootcamp instructor
+    { name: 'Fajar Nugroho',      email: 'fajar@kodeinaja.org' },
+    // Scenario G: Religious school teacher
+    { name: 'Ustadzah Hana',      email: 'hana.mdta@ymail.com' },
+    // Scenario H: Homeschool parent
+    { name: 'Mega Putri',         email: 'megaputri.hs@gmail.com' },
+    // Scenario I: Retired teacher doing volunteer tutoring
+    { name: 'Pak Joko',           email: 'joko.subroto@yahoo.co.id' },
   ];
   const teachers = await User.create(
     teacherDefs.map((t) => ({ ...t, password: 'password123', role: 'teacher' }))
   );
 
-  console.log('🎓 Creating 50 students...');
-  const studentNames = [
-    'Rina Putri','Dimas Prasetyo','Maya Sari','Fajar Nugroho','Ani Lestari',
-    'Reza Firmansyah','Dewi Anggraini','Hendra Gunawan','Nadia Safitri','Oki Pramana',
-    'Putri Handayani','Qori Amalia','Rahmat Hidayat','Sari Mulyani','Taufik Hidayat',
-    'Umi Kalsum','Vina Melati','Wahyu Setiawan','Xena Puspita','Yusuf Maulana',
-    'Zahra Ayu','Bayu Pratama','Citra Dewi','Dani Kurniawan','Elia Rahmawati',
-    'Farhan Ramadhan','Gita Nirmala','Hari Wibowo','Indah Permata','Jihan Aulia',
-    'Kevin Saputra','Lina Marlina','Miko Ardiansyah','Nisa Fitriani','Oscar Tanaka',
-    'Pandu Wijaya','Qiara Salsabila','Rizky Aditya','Sinta Purnama','Toni Hermawan',
-    'Ulfa Maharani','Vicky Ananda','Winda Lestari','Xander Mahendra','Yanti Susanti',
-    'Zaki Mubarak','Alya Rahma','Brama Satria','Cantika Dewi','Daffa Pratama',
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  STUDENTS — varied email providers & naming styles
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('🎓 Creating students...');
+  const studentList: { name: string; email: string }[] = [
+    // High-school students (Siti's classes)
+    { name: 'Andi Saputra',       email: 'andi.saputra11@gmail.com' },
+    { name: 'Bella Permata',      email: 'bella.p@siswa.sma5bdg.sch.id' },
+    { name: 'Cahyo Wibowo',       email: 'cahyow@yahoo.com' },
+    { name: 'Dina Marlina',       email: 'dinamarlina@outlook.com' },
+    { name: 'Erik Setiawan',      email: 'erik.setiawan@gmail.com' },
+    { name: 'Fani Rahmawati',     email: 'fani.r@siswa.sma5bdg.sch.id' },
+    { name: 'Galih Purnomo',      email: 'galih_purnomo@gmail.com' },
+    { name: 'Hesti Yulianti',     email: 'hesti.yuli@ymail.com' },
+    { name: 'Irwan Hidayat',      email: 'irwan.h2010@gmail.com' },
+    { name: 'Julia Sari',         email: 'julia.sari@outlook.com' },
+    // University students (Dr. Budi's class)
+    { name: 'Kevin Wijaya',       email: 'kevin.w@student.unpad.ac.id' },
+    { name: 'Laras Ayu',          email: 'larasayu22@gmail.com' },
+    { name: 'Mahesa Putra',       email: 'mahesa.p@student.unpad.ac.id' },
+    { name: 'Nabila Azzahra',     email: 'nabilazz@icloud.com' },
+    { name: 'Oscar Firmansyah',   email: 'oscar.f@student.unpad.ac.id' },
+    // Tutoring center students (Bintang Pelajar)
+    { name: 'Putri Handayani',    email: 'putri.h@gmail.com' },
+    { name: 'Qori Amalia',        email: 'qoriamalia@yahoo.co.id' },
+    { name: 'Rizky Aditya',       email: 'rizky.aditya@outlook.com' },
+    { name: 'Santi Dewi',         email: 'santi.dewi99@gmail.com' },
+    { name: 'Taufik Rahman',      email: 'taufik.r@ymail.com' },
+    { name: 'Ulya Maharani',      email: 'ulya.maharani@gmail.com' },
+    { name: 'Vega Pratama',       email: 'vega.pratama@outlook.com' },
+    { name: 'Winda Lestari',      email: 'windalestari@gmail.com' },
+    // English tutor students (Rina's class)
+    { name: 'Xander Mahendra',    email: 'xander.m@gmail.com' },
+    { name: 'Yanti Susanti',      email: 'yanti.susanti@icloud.com' },
+    { name: 'Zahra Ayu',          email: 'zahraayu@yahoo.com' },
+    // Corporate trainees (Eko's class)
+    { name: 'Arif Budiman',       email: 'arif.budiman@tigerhr.co.id' },
+    { name: 'Bunga Citra',        email: 'bunga.citra@tigerhr.co.id' },
+    { name: 'Chandra Halim',      email: 'chandra.h@tigerhr.co.id' },
+    { name: 'Diana Putri',        email: 'diana.putri@tigerhr.co.id' },
+    // Coding bootcamp students (Fajar's class)
+    { name: 'Elang Saputra',      email: 'elang@protonmail.com' },
+    { name: 'Fira Nuraini',       email: 'fira.dev@gmail.com' },
+    { name: 'Gilang Ramadhan',    email: 'gilang.r@outlook.com' },
+    { name: 'Hana Safitri',       email: 'hana.code@gmail.com' },
+    { name: 'Ivan Kurniawan',     email: 'ivan.k@protonmail.com' },
+    // Religious school students (Ustadzah Hana's class)
+    { name: 'Jasmine Aulia',      email: 'jasmine.aulia@gmail.com' },
+    { name: 'Khadijah Nur',       email: 'khadijah.nur@yahoo.com' },
+    { name: 'Luthfi Hakim',       email: 'luthfi.h@gmail.com' },
+    { name: 'Maryam Safira',      email: 'maryam.s@outlook.com' },
+    // Homeschool kids (Mega's class)
+    { name: 'Naufal Rizki',       email: 'naufal.r.hs@gmail.com' },
+    { name: 'Olive Putri',        email: 'olive.putri.hs@gmail.com' },
+    // Volunteer tutoring students (Pak Joko's class)
+    { name: 'Prasetyo Adi',       email: 'prasetyo.adi@gmail.com' },
+    { name: 'Qonita Zahra',       email: 'qonitaz@ymail.com' },
+    { name: 'Raka Darmawan',      email: 'raka.d@outlook.com' },
+    // Extra students that join multiple classes
+    { name: 'Salma Khaira',       email: 'salma.khaira@gmail.com' },
+    { name: 'Tegar Prakoso',      email: 'tegar.p@yahoo.co.id' },
+    { name: 'Umi Habibah',        email: 'umi.h@gmail.com' },
+    { name: 'Vino Ardiansyah',    email: 'vino.ardi@outlook.com' },
+    { name: 'Wulan Sari',         email: 'wulan.sari@icloud.com' },
+    { name: 'Yuda Permana',       email: 'yuda.permana@gmail.com' },
   ];
   const students = await User.create(
-    studentNames.map((name, i) => ({
-      name,
-      email: `student${i + 1}@student.com`,
-      password: 'password123',
-      role: 'student',
-    }))
+    studentList.map((s) => ({ ...s, password: 'password123', role: 'student' }))
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  CLASSES  (15 classes spread across teachers)
+  //  CLASSES — each represents a different real-world scenario
   // ═══════════════════════════════════════════════════════════════════════════
-  console.log('🏫 Creating 15 classes...');
+  console.log('🏫 Creating classes...');
   const classDefs = [
-    { name: 'Matematika Dasar',     desc: 'Aljabar, geometri, dan statistika dasar',     owner: 0 },
-    { name: 'Kalkulus I',           desc: 'Limit, turunan, dan integral',                owner: 0 },
-    { name: 'Fisika Dasar',        desc: 'Mekanika dan termodinamika',                  owner: 1 },
-    { name: 'Fisika Modern',       desc: 'Relativitas dan mekanika kuantum',            owner: 1 },
-    { name: 'Bahasa Indonesia',    desc: 'Tata bahasa, sastra, dan penulisan',          owner: 2 },
-    { name: 'Bahasa Inggris',      desc: 'Grammar, reading, dan writing',               owner: 2 },
-    { name: 'Sejarah Indonesia',   desc: 'Dari kerajaan Nusantara hingga Reformasi',    owner: 3 },
-    { name: 'Biologi SMA',        desc: 'Sel, genetika, ekologi, dan evolusi',          owner: 4 },
-    { name: 'Kimia Dasar',        desc: 'Atom, ikatan kimia, stoikiometri',             owner: 5 },
-    { name: 'Ekonomi Mikro',      desc: 'Permintaan, penawaran, dan pasar',             owner: 6 },
-    { name: 'Geografi',           desc: 'Litosfer, atmosfer, hidrosfer',                owner: 7 },
-    { name: 'Informatika',        desc: 'Algoritma, pemrograman dasar, dan basis data', owner: 8 },
-    { name: 'Seni Budaya',        desc: 'Seni rupa, musik, dan tari Nusantara',        owner: 9 },
-    { name: 'Pendidikan Kewarganegaraan', desc: 'Pancasila, UUD 1945, hak & kewajiban', owner: 3 },
-    { name: 'Sosiologi',          desc: 'Struktur sosial, konflik, dan perubahan',      owner: 6 },
+    // Siti (0): high-school teacher with 2 subject classes
+    { name: 'Matematika Kelas 11A',       desc: 'Pelajaran Matematika SMA kelas 11A semester genap',        owner: 0 },
+    { name: 'Fisika Kelas 11A',           desc: 'Pelajaran Fisika SMA kelas 11A',                          owner: 0 },
+    // Budi (1): university lecturer with 1 class
+    { name: 'Statistika Terapan S1',      desc: 'Mata kuliah Statistika Terapan, Prodi Teknik Industri',    owner: 1 },
+    // Ahmad (2) + Dewi (3): tutoring center with 2 groups
+    { name: 'Bintang Pelajar — SMP',      desc: 'Les persiapan ujian SMP (semua mapel)',                    owner: 2 },
+    { name: 'Bintang Pelajar — SMA IPA',  desc: 'Les SMA jurusan IPA (Matematika, Fisika, Kimia, Biologi)',owner: 2 },
   ];
   const classes = await Class.create(
     classDefs.map((c) => ({
@@ -112,29 +161,30 @@ async function seed() {
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  MEMBERSHIPS
+  //  MEMBERSHIPS — deliberate student-to-class mapping per scenario
   // ═══════════════════════════════════════════════════════════════════════════
   console.log('👥 Creating memberships...');
   const membershipDocs: any[] = [];
+  // Map: classIndex → array of student indices
+  const classStudentMap: number[][] = [
+    /* 0  Matematika 11A */   [0,1,2,3,4,5,6,7,8,9],
+    /* 1  Fisika 11A */       [0,1,2,3,4,5,6,7,8,9],
+    /* 2  Statistika S1 */    [10,11,12,13,14],
+    /* 3  BP SMP */           [15,16,17,18,19],
+    /* 4  BP SMA IPA */       [15,16,17,18,19,20,21,22,45,46],
+  ];
 
-  // Spread students across classes: each class gets 12-30 students
-  const classStudentMap: number[][] = [];
   for (let ci = 0; ci < classes.length; ci++) {
-    const size = randBetween(12, Math.min(30, students.length));
-    const offset = (ci * 7) % students.length;
-    const indices: number[] = [];
-    for (let s = 0; s < size; s++) {
-      indices.push((offset + s) % students.length);
-    }
-    classStudentMap.push([...new Set(indices)]);
     for (const si of classStudentMap[ci]) {
       membershipDocs.push({ userId: students[si]._id, classId: classes[ci]._id, role: 'student', status: 'approved' });
     }
   }
 
-  // Pending join requests (8 total)
-  const pendingPairs = [
-    [42, 0],[43, 1],[44, 2],[45, 3],[46, 7],[47, 8],[48, 11],[49, 14],
+  // Pending join requests
+  const pendingPairs: [number, number][] = [
+    [44, 0], // Salma wants to join Matematika 11A
+    [46, 2], // Umi wants to join Statistika S1
+    [49, 4], // Yuda wants to join BP SMA IPA
   ];
   for (const [si, ci] of pendingPairs) {
     if (!classStudentMap[ci].includes(si)) {
@@ -142,83 +192,79 @@ async function seed() {
     }
   }
 
-  // Co-teachers (6 assignments)
-  const coTeacherPairs = [[1,0],[2,1],[0,2],[4,3],[5,7],[8,9]];
-  for (const [ti, ci] of coTeacherPairs) {
-    membershipDocs.push({ userId: teachers[ti]._id, classId: classes[ci]._id, role: 'co-teacher', status: 'approved' });
-  }
+  // Co-teachers
+  membershipDocs.push(
+    { userId: teachers[3]._id, classId: classes[3]._id, role: 'co-teacher', status: 'approved' }, // Dewi co-teaches BP SMP (Ahmad's)
+    { userId: teachers[3]._id, classId: classes[4]._id, role: 'co-teacher', status: 'approved' }, // Dewi co-teaches BP SMA IPA
+  );
 
   await Membership.create(membershipDocs);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  TOPICS  (~40 topics)
+  //  TOPICS — realistic per class scenario
   // ═══════════════════════════════════════════════════════════════════════════
   console.log('📁 Creating topics...');
   const topicDefs: { name: string; ci: number }[] = [
-    // Matematika Dasar (0)
-    { name: 'Aljabar', ci: 0 },{ name: 'Geometri', ci: 0 },{ name: 'Statistika', ci: 0 },
-    // Kalkulus I (1)
-    { name: 'Limit Fungsi', ci: 1 },{ name: 'Turunan', ci: 1 },{ name: 'Integral', ci: 1 },
-    // Fisika Dasar (2)
-    { name: 'Mekanika', ci: 2 },{ name: 'Termodinamika', ci: 2 },{ name: 'Gelombang', ci: 2 },
-    // Fisika Modern (3)
-    { name: 'Relativitas Khusus', ci: 3 },{ name: 'Mekanika Kuantum', ci: 3 },
-    // Bahasa Indonesia (4)
-    { name: 'Tata Bahasa', ci: 4 },{ name: 'Sastra', ci: 4 },{ name: 'Penulisan Kreatif', ci: 4 },
-    // Bahasa Inggris (5)
-    { name: 'Grammar', ci: 5 },{ name: 'Reading Comprehension', ci: 5 },{ name: 'Essay Writing', ci: 5 },
-    // Sejarah Indonesia (6)
-    { name: 'Kerajaan Hindu-Buddha', ci: 6 },{ name: 'Kolonialisme', ci: 6 },{ name: 'Kemerdekaan', ci: 6 },
-    // Biologi SMA (7)
-    { name: 'Sel & Jaringan', ci: 7 },{ name: 'Genetika', ci: 7 },{ name: 'Ekologi', ci: 7 },
-    // Kimia Dasar (8)
-    { name: 'Struktur Atom', ci: 8 },{ name: 'Ikatan Kimia', ci: 8 },{ name: 'Stoikiometri', ci: 8 },
-    // Ekonomi Mikro (9)
-    { name: 'Permintaan & Penawaran', ci: 9 },{ name: 'Elastisitas', ci: 9 },{ name: 'Struktur Pasar', ci: 9 },
-    // Geografi (10)
-    { name: 'Litosfer', ci: 10 },{ name: 'Atmosfer', ci: 10 },{ name: 'Hidrosfer', ci: 10 },
-    // Informatika (11)
-    { name: 'Algoritma', ci: 11 },{ name: 'Pemrograman Dasar', ci: 11 },{ name: 'Basis Data', ci: 11 },
-    // Seni Budaya (12)
-    { name: 'Seni Rupa', ci: 12 },{ name: 'Seni Musik', ci: 12 },
-    // PKN (13)
-    { name: 'Pancasila', ci: 13 },{ name: 'UUD 1945', ci: 13 },
-    // Sosiologi (14)
-    { name: 'Struktur Sosial', ci: 14 },{ name: 'Perubahan Sosial', ci: 14 },
+    // Matematika 11A (0)
+    { name: 'Matriks', ci: 0 }, { name: 'Barisan & Deret', ci: 0 }, { name: 'Limit Fungsi', ci: 0 },
+    // Fisika 11A (1)
+    { name: 'Hukum Newton', ci: 1 }, { name: 'Usaha & Energi', ci: 1 }, { name: 'Momentum & Impuls', ci: 1 },
+    // Statistika S1 (2)
+    { name: 'Statistik Deskriptif', ci: 2 }, { name: 'Probabilitas', ci: 2 }, { name: 'Regresi Linear', ci: 2 },
+    // BP SMP (3)
+    { name: 'Matematika SMP', ci: 3 }, { name: 'IPA SMP', ci: 3 }, { name: 'Bahasa Indonesia SMP', ci: 3 },
+    // BP SMA IPA (4)
+    { name: 'Matematika IPA', ci: 4 }, { name: 'Fisika', ci: 4 }, { name: 'Kimia', ci: 4 }, { name: 'Biologi', ci: 4 },
   ];
   const topics = await Topic.create(
     topicDefs.map((t) => ({ name: t.name, classId: classes[t.ci]._id }))
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  QUIZZES  (~60 quizzes)
+  //  QUIZZES — explicit statuses, mostly open/closed for visible data
   // ═══════════════════════════════════════════════════════════════════════════
   console.log('📝 Creating quizzes...');
-  const statuses: Array<{ mode: string; status: string }> = [
+  // Weighted status: 50% open, 25% closed, 15% draft, 10% scheduled
+  const statusPool: Array<{ mode: string; status: string }> = [
+    { mode: 'manual', status: 'open' },
+    { mode: 'manual', status: 'open' },
+    { mode: 'manual', status: 'open' },
+    { mode: 'manual', status: 'open' },
+    { mode: 'manual', status: 'open' },
+    { mode: 'manual', status: 'open' },
+    { mode: 'manual', status: 'open' },
+    { mode: 'manual', status: 'open' },
     { mode: 'manual', status: 'open' },
     { mode: 'manual', status: 'open' },
     { mode: 'manual', status: 'closed' },
+    { mode: 'manual', status: 'closed' },
+    { mode: 'manual', status: 'closed' },
+    { mode: 'manual', status: 'closed' },
+    { mode: 'manual', status: 'closed' },
     { mode: 'manual', status: 'draft' },
+    { mode: 'manual', status: 'draft' },
+    { mode: 'manual', status: 'draft' },
+    { mode: 'scheduled', status: 'scheduled' },
     { mode: 'scheduled', status: 'scheduled' },
   ];
 
   const quizDefs: any[] = [];
-  const quizTopicIndex: number[] = []; // track which topic each quiz belongs to
+  const quizTopicIndex: number[] = [];
 
   for (let ti = 0; ti < topics.length; ti++) {
-    // 1-2 quizzes per topic
     const count = randBetween(1, 2);
     for (let q = 0; q < count; q++) {
-      const st = pick(statuses);
-      const dur = pick([10, 15, 20, 25, 30]);
+      const st = pick(statusPool);
+      const dur = pick([10, 15, 20, 25, 30, 45, 60]);
       const quiz: any = {
-        title: `${topics[ti].name} - Kuis ${q + 1}`,
+        title: `${topics[ti].name} — Kuis ${q + 1}`,
         topicId: topics[ti]._id,
         mode: st.mode,
         status: st.status,
         duration: dur,
         attemptLimit: pick([1, 1, 2, 3]),
-        shuffleQuestions: Math.random() > 0.7,
+        shuffleQuestions: Math.random() > 0.3, // Mostly true
+        shuffleOptions: Math.random() > 0.4, // Mostly true
         allowBacktrack: Math.random() > 0.2,
       };
       if (st.mode === 'scheduled') {
@@ -233,48 +279,50 @@ async function seed() {
   console.log(`   → ${quizzes.length} quizzes created`);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  QUESTIONS (3-5 per quiz)
+  //  QUESTIONS — 3-5 per quiz, always created (including drafts)
   // ═══════════════════════════════════════════════════════════════════════════
   console.log('❓ Creating questions...');
   const mcTemplates = [
-    { t: 'Manakah pernyataan berikut yang benar tentang {topic}?', opts: ['Pernyataan A (benar)', 'Pernyataan B', 'Pernyataan C', 'Pernyataan D'] },
-    { t: 'Apa yang dimaksud dengan konsep utama dalam {topic}?', opts: ['Definisi yang tepat', 'Definisi tidak tepat 1', 'Definisi tidak tepat 2', 'Definisi tidak tepat 3'] },
-    { t: 'Contoh penerapan {topic} dalam kehidupan sehari-hari adalah...', opts: ['Contoh tepat', 'Contoh kurang tepat 1', 'Contoh kurang tepat 2', 'Contoh kurang tepat 3'] },
-    { t: 'Siapa tokoh yang paling berkaitan dengan {topic}?', opts: ['Tokoh yang benar', 'Tokoh lain 1', 'Tokoh lain 2', 'Tokoh lain 3'] },
-    { t: 'Rumus atau prinsip dasar dari {topic} adalah...', opts: ['Rumus benar', 'Rumus salah 1', 'Rumus salah 2', 'Rumus salah 3'] },
+    { t: 'Manakah pernyataan berikut yang benar tentang {topic}?',
+      opts: ['Pernyataan A (benar)', 'Pernyataan B', 'Pernyataan C', 'Pernyataan D'] },
+    { t: 'Apa yang dimaksud dengan konsep utama dalam {topic}?',
+      opts: ['Definisi yang tepat', 'Jawaban kurang tepat 1', 'Jawaban kurang tepat 2', 'Jawaban kurang tepat 3'] },
+    { t: 'Contoh penerapan {topic} dalam kehidupan sehari-hari adalah...',
+      opts: ['Contoh tepat', 'Contoh kurang tepat 1', 'Contoh kurang tepat 2', 'Contoh kurang tepat 3'] },
+    { t: 'Berikut yang BUKAN merupakan bagian dari {topic} adalah...',
+      opts: ['Bukan bagian (benar)', 'Bagian 1', 'Bagian 2', 'Bagian 3'] },
+    { t: 'Prinsip dasar dari {topic} dapat dirumuskan sebagai...',
+      opts: ['Rumusan benar', 'Rumusan salah 1', 'Rumusan salah 2', 'Rumusan salah 3'] },
+    { t: 'Hasil perhitungan yang berkaitan dengan {topic} adalah...',
+      opts: ['Jawaban benar', 'Jawaban salah 1', 'Jawaban salah 2', 'Jawaban salah 3'] },
   ];
-  const essayTemplates = [
-    'Jelaskan konsep utama dari {topic} dengan kata-kata sendiri.',
-    'Berikan 3 contoh penerapan {topic} dalam kehidupan nyata.',
-    'Bandingkan dan kontraskan dua aspek penting dalam {topic}.',
-    'Analisislah hubungan antara {topic} dengan bidang ilmu lain.',
+  const shortAnswerTemplates = [
+    { t: 'Tuliskan secara singkat konsep utama dari {topic}.', ans: ['konsep penting', 'jawaban pendek'] },
+    { t: 'Berikan satu contoh penerapan {topic}.', ans: ['contoh A', 'contoh B', 'contoh nyata'] },
+    { t: 'Apa nama istilah lain dari {topic}?', ans: ['istilah sinonim', 'nama lain'] },
   ];
 
   const questionDocs: any[] = [];
   for (let qi = 0; qi < quizzes.length; qi++) {
-    const quiz = quizzes[qi];
     const topicName = topics[quizTopicIndex[qi]].name;
     const qCount = randBetween(3, 5);
     for (let qo = 0; qo < qCount; qo++) {
-      if (qo === qCount - 1 && Math.random() > 0.4) {
-        // Essay question (last question, ~60% chance)
-        const tmpl = pick(essayTemplates);
+      if (qo === qCount - 1 && Math.random() > 0.5) {
+        const tmpl = pick(shortAnswerTemplates);
         questionDocs.push({
-          quizId: quiz._id,
-          type: 'essay',
-          text: tmpl.replace('{topic}', topicName),
-          points: pick([15, 20, 25]),
-          order: qo,
-          options: [],
+          quizId: quizzes[qi]._id, type: 'short_answer',
+          text: tmpl.t.replace('{topic}', topicName),
+          points: pick([15, 20, 25]), order: qo,
+          caseSensitive: Math.random() > 0.8,
+          spaceSensitive: Math.random() > 0.8,
+          options: tmpl.ans.map((a: string) => ({ text: a, isCorrect: true })),
         });
       } else {
         const tmpl = pick(mcTemplates);
         questionDocs.push({
-          quizId: quiz._id,
-          type: 'multiple_choice',
+          quizId: quizzes[qi]._id, type: 'multiple_choice',
           text: tmpl.t.replace('{topic}', topicName),
-          points: 10,
-          order: qo,
+          points: 10, order: qo,
           options: tmpl.opts.map((text, i) => ({ text, isCorrect: i === 0 })),
         });
       }
@@ -284,32 +332,30 @@ async function seed() {
   console.log(`   → ${questions.length} questions created`);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  ATTEMPTS & ANSWERS
+  //  ATTEMPTS & ANSWERS — only for open/closed quizzes
   // ═══════════════════════════════════════════════════════════════════════════
   console.log('📊 Creating attempts and answers...');
   const attemptBulk: any[] = [];
   const answerBulk: any[] = [];
 
-  // Build quiz → classIndex map via topicDefs
   function classIndexForQuiz(qi: number): number {
     return topicDefs[quizTopicIndex[qi]].ci;
   }
 
   for (let qi = 0; qi < quizzes.length; qi++) {
     const quiz = quizzes[qi];
-    if (quiz.status === 'draft' || quiz.status === 'scheduled') continue;
+    if (quiz.status !== 'open' && quiz.status !== 'closed') continue;
 
     const ci = classIndexForQuiz(qi);
     const enrolled = classStudentMap[ci].map((si) => students[si]);
     const quizQs = questions.filter((q: any) => q.quizId.toString() === quiz._id.toString());
     if (quizQs.length === 0) continue;
 
-    // 55-90% of enrolled students attempt
-    const attemptCount = Math.max(1, Math.ceil(enrolled.length * (0.55 + Math.random() * 0.35)));
+    const attemptCount = Math.max(1, Math.ceil(enrolled.length * (0.6 + Math.random() * 0.35)));
     const attemptStudents = enrolled.slice(0, attemptCount);
 
     for (const student of attemptStudents) {
-      const startedAt = daysAgo(randBetween(1, 14));
+      const startedAt = daysAgo(randBetween(1, 21));
       const submittedAt = new Date(startedAt.getTime() + randBetween(3, quiz.duration) * 60000);
 
       let totalPts = 0;
@@ -329,37 +375,31 @@ async function seed() {
           earnedPts += pts;
           tempAnswers.push({ questionId: q._id, answer: chosen, isCorrect: correct, points: pts });
         } else {
-          const pts = Math.floor(Math.random() * (q.points + 1));
+          const correctAns = q.options[0].text;
+          const correct = Math.random() > 0.4;
+          const pts = correct ? q.points : 0;
           earnedPts += pts;
-          tempAnswers.push({ questionId: q._id, answer: 'Jawaban esai dari siswa.', isCorrect: pts >= q.points * 0.5, points: pts });
+          tempAnswers.push({ questionId: q._id, answer: correct ? correctAns : 'Jawaban salah', isCorrect: correct, points: pts });
         }
       }
 
       attemptBulk.push({
-        userId: student._id,
-        quizId: quiz._id,
-        status: 'submitted',
-        startedAt,
-        submittedAt,
-        score: earnedPts,
-        totalPoints: totalPts,
+        userId: student._id, quizId: quiz._id,
+        status: 'submitted', startedAt, submittedAt,
+        score: earnedPts, totalPoints: totalPts,
         _tempAnswers: tempAnswers,
       });
     }
   }
 
-  // Insert attempts
   const attempts = await Attempt.create(attemptBulk.map(({ _tempAnswers, ...rest }) => rest));
 
-  // Insert answers
   for (let i = 0; i < attempts.length; i++) {
-    const ans = attemptBulk[i]._tempAnswers || [];
-    for (const a of ans) {
+    for (const a of attemptBulk[i]._tempAnswers || []) {
       answerBulk.push({ attemptId: attempts[i]._id, ...a });
     }
   }
   if (answerBulk.length > 0) {
-    // Insert in batches to avoid memory issues
     const BATCH = 500;
     for (let i = 0; i < answerBulk.length; i += BATCH) {
       await Answer.insertMany(answerBulk.slice(i, i + BATCH));
@@ -373,50 +413,40 @@ async function seed() {
   console.log('🔔 Creating notifications...');
   const notifDocs: any[] = [];
 
-  // join_approved for every approved student membership
   for (let ci = 0; ci < classes.length; ci++) {
     for (const si of classStudentMap[ci]) {
       notifDocs.push({
-        userId: students[si]._id,
-        type: 'join_approved',
+        userId: students[si]._id, type: 'join_approved',
         title: `Bergabung ke ${classes[ci].name}`,
         message: `Permintaan bergabung ke kelas "${classes[ci].name}" telah disetujui.`,
-        classId: classes[ci]._id,
-        isRead: Math.random() > 0.25,
+        classId: classes[ci]._id, isRead: Math.random() > 0.25,
       });
     }
   }
 
-  // quiz_open for open quizzes
   for (let qi = 0; qi < quizzes.length; qi++) {
     if (quizzes[qi].status !== 'open' && quizzes[qi].status !== 'closed') continue;
     const ci = classIndexForQuiz(qi);
     for (const si of classStudentMap[ci]) {
       notifDocs.push({
-        userId: students[si]._id,
-        type: 'quiz_open',
+        userId: students[si]._id, type: 'quiz_open',
         title: `Kuis Dibuka: ${quizzes[qi].title}`,
         message: `Kuis "${quizzes[qi].title}" sekarang tersedia.`,
-        quizId: quizzes[qi]._id,
-        isRead: Math.random() > 0.4,
+        quizId: quizzes[qi]._id, isRead: Math.random() > 0.4,
       });
     }
   }
 
-  // join_request notifications for pending members → class owner
   for (const [si, ci] of pendingPairs) {
     const ownerIdx = classDefs[ci].owner;
     notifDocs.push({
-      userId: teachers[ownerIdx]._id,
-      type: 'join_request',
+      userId: teachers[ownerIdx]._id, type: 'join_request',
       title: 'Permintaan Bergabung',
       message: `${students[si].name} ingin bergabung ke kelas "${classes[ci].name}".`,
-      classId: classes[ci]._id,
-      isRead: false,
+      classId: classes[ci]._id, isRead: false,
     });
   }
 
-  // Insert notifications in batches
   const NBATCH = 500;
   for (let i = 0; i < notifDocs.length; i += NBATCH) {
     await Notification.insertMany(notifDocs.slice(i, i + NBATCH));
@@ -438,9 +468,13 @@ async function seed() {
   console.log(`   Notifications: ${notifDocs.length}`);
   console.log(`   Memberships:   ${membershipDocs.length}`);
   console.log('\n📌 Login credentials (password: password123):');
-  console.log('   Teachers: budi@teacher.com, siti@teacher.com, ahmad@teacher.com, ...');
-  console.log('   Students: student1@student.com through student50@student.com');
-  console.log('   First student: student1@student.com (Rina Putri)');
+  console.log('   Teachers:');
+  for (const t of teacherDefs) console.log(`     ${t.email.padEnd(35)} (${t.name})`);
+  console.log('   Students (sample):');
+  console.log(`     ${studentList[0].email.padEnd(35)} (${studentList[0].name})`);
+  console.log(`     ${studentList[10].email.padEnd(35)} (${studentList[10].name})`);
+  console.log(`     ${studentList[15].email.padEnd(35)} (${studentList[15].name})`);
+  console.log(`     ${studentList[30].email.padEnd(35)} (${studentList[30].name})`);
 
   await mongoose.disconnect();
   process.exit(0);

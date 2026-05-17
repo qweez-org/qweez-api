@@ -12,6 +12,7 @@ export interface IQuiz extends Document {
   scheduledClose?: Date;
   attemptLimit: number;
   shuffleQuestions: boolean;
+  shuffleOptions: boolean;
   allowBacktrack: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -34,6 +35,7 @@ const quizSchema = new Schema<IQuiz>(
     scheduledClose: { type: Date },
     attemptLimit: { type: Number, default: 1 },
     shuffleQuestions: { type: Boolean, default: false },
+    shuffleOptions: { type: Boolean, default: false },
     allowBacktrack: { type: Boolean, default: true },
   },
   { timestamps: true }

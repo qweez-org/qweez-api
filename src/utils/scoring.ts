@@ -29,8 +29,30 @@ export const scoreAttempt = async (attemptId: string): Promise<{ score: number; 
         answer.points = 0;
       }
       await answer.save();
+    } else if (question.type === 'short_answer') {
+      let isCorrect = false;
+      let studentAnswer = answer.answer;
+      
+      if (!question.spaceSensitive) studentAnswer = studentAnswer.trim().replace(/\s+/g, ' ');
+      if (!question.caseSensitive) studentAnswer = studentAnswer.toLowerCase();
+
+      for (const opt of question.options) {
+        if (!opt.isCorrect) continue;
+        let correctText = opt.text;
+        if (!question.spaceSensitive) correctText = correctText.trim().replace(/\s+/g, ' ');
+        if (!question.caseSensitive) correctText = correctText.toLowerCase();
+
+        if (studentAnswer === correctText) {
+          isCorrect = true;
+          break;
+        }
+      }
+
+      answer.isCorrect = isCorrect;
+      answer.points = isCorrect ? question.points : 0;
+      if (isCorrect) score += question.points;
+      await answer.save();
     }
-    // Essay questions are graded manually by teachers
   }
 
   attempt.score = score;

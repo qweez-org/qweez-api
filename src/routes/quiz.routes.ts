@@ -12,6 +12,7 @@ import Joi from 'joi';
 import { validate } from '../middleware/validate.js';
 import { validateObjectIdParam } from '../middleware/validateObjectId.js';
 import { getQuizContextForUser, getManageableClassForTeacher } from '../utils/access.js';
+import { getSessionByQuizId } from '../socket/liveQuizHandler.js';
 
 const router = Router();
 
@@ -74,7 +75,37 @@ router.get('/topics/:topicId', auth, validateObjectIdParam('topicId'), async (re
     }
 
     const quizzes = await Quiz.find({ topicId: req.params.topicId }).sort({ createdAt: -1 });
-    res.json({ quizzes });
+
+    // Attach questionCount for each quiz
+    const quizIds = quizzes.map((q) => q._id);
+    const counts = await Question.aggregate([
+      { $match: { quizId: { $in: quizIds } } },
+      { $group: { _id: '$quizId', count: { $sum: 1 } } },
+    ]);
+    const countMap = new Map(counts.map((c) => [c._id.toString(), c.count]));
+
+    let completedMap = new Map<string, boolean>();
+    if (req.user!.role === 'student') {
+      const attempts = await Attempt.find({
+        userId: req.user!._id,
+        quizId: { $in: quizIds },
+        status: 'submitted',
+      }).select('quizId');
+      for (const a of attempts) {
+        completedMap.set(a.quizId.toString(), true);
+      }
+    }
+
+    const quizzesWithCount = quizzes.map((q) => {
+      const qObj = q.toObject();
+      return {
+        ...qObj,
+        questionCount: countMap.get(q._id.toString()) || 0,
+        isCompleted: completedMap.get(q._id.toString()) || false,
+      };
+    });
+
+    res.json({ quizzes: quizzesWithCount });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch quizzes' });
   }
@@ -89,6 +120,9 @@ const createQuizSchema = Joi.object({
   scheduledOpen: Joi.date().iso().allow(null),
   scheduledClose: Joi.date().iso().allow(null),
   description: Joi.string().max(1000).allow(''),
+  allowBacktrack: Joi.boolean(),
+  shuffleQuestions: Joi.boolean(),
+  shuffleOptions: Joi.boolean(),
 });
 
 router.post('/topics/:topicId', auth, authorize('teacher'), validateObjectIdParam('topicId'), validate(createQuizSchema), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -116,7 +150,7 @@ router.post('/topics/:topicId', auth, authorize('teacher'), validateObjectIdPara
       return;
     }
 
-    const { title, duration, mode, attemptLimit, scheduledOpen, scheduledClose, description, allowBacktrack } = req.body;
+    const { title, duration, mode, attemptLimit, scheduledOpen, scheduledClose, description, allowBacktrack, shuffleQuestions, shuffleOptions } = req.body;
     const quiz = new Quiz({
       title,
       description,
@@ -126,6 +160,8 @@ router.post('/topics/:topicId', auth, authorize('teacher'), validateObjectIdPara
       scheduledOpen,
       scheduledClose,
       allowBacktrack,
+      shuffleQuestions,
+      shuffleOptions,
       topicId: req.params.topicId,
       status: 'draft',
     });
@@ -152,8 +188,12 @@ router.get('/:quizId', auth, validateObjectIdParam('quizId'), async (req: AuthRe
         return;
       }
     }
+    const quizObj = ctx.quiz.toObject();
+    if (quizObj.mode === 'live') {
+      quizObj.isLiveSessionOpen = !!getSessionByQuizId(req.params.quizId);
+    }
 
-    res.json({ quiz: ctx.quiz });
+    res.json({ quiz: quizObj });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch quiz' });
   }
@@ -170,6 +210,8 @@ const updateQuizSchema = Joi.object({
   scheduledClose: Joi.date().iso().allow(null),
   status: Joi.string().valid('draft', 'scheduled', 'open', 'closed', 'waiting', 'in_progress', 'finished'),
   allowBacktrack: Joi.boolean(),
+  shuffleQuestions: Joi.boolean(),
+  shuffleOptions: Joi.boolean(),
 });
 
 router.patch('/:quizId', auth, authorize('teacher'), validateObjectIdParam('quizId'), validate(updateQuizSchema), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -260,8 +302,10 @@ router.get('/:quizId/questions', auth, validateObjectIdParam('quizId'), async (r
 // POST /api/quizzes/:quizId/questions — Fix #14: add validation
 const createQuestionSchema = Joi.object({
   text: Joi.string().required().min(1).max(2000),
-  type: Joi.string().valid('multiple_choice', 'essay').required(),
+  type: Joi.string().valid('multiple_choice', 'short_answer').required(),
   points: Joi.number().integer().min(1).max(1000).default(10),
+  caseSensitive: Joi.boolean().default(false),
+  spaceSensitive: Joi.boolean().default(false),
   options: Joi.array().items(
     Joi.object({
       text: Joi.string().required(),
@@ -288,13 +332,15 @@ router.post('/:quizId/questions', auth, authorize('teacher'), validateObjectIdPa
       return;
     }
 
-    const { text, type, points, options } = req.body;
+    const { text, type, points, options, caseSensitive, spaceSensitive } = req.body;
     const count = await Question.countDocuments({ quizId: req.params.quizId });
     const question = new Question({
       quizId: req.params.quizId,
       text,
       type,
       points,
+      caseSensitive,
+      spaceSensitive,
       options,
       order: count + 1,
     });
@@ -308,8 +354,10 @@ router.post('/:quizId/questions', auth, authorize('teacher'), validateObjectIdPa
 // PATCH /api/quizzes/:quizId/questions/:questionId
 const updateQuestionSchema = Joi.object({
   text: Joi.string().min(1).max(2000),
-  type: Joi.string().valid('multiple_choice', 'essay'),
+  type: Joi.string().valid('multiple_choice', 'short_answer'),
   points: Joi.number().integer().min(1).max(1000),
+  caseSensitive: Joi.boolean(),
+  spaceSensitive: Joi.boolean(),
   options: Joi.array().items(
     Joi.object({
       text: Joi.string().required(),

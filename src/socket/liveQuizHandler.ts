@@ -3,7 +3,8 @@ import { Question, IQuestion } from '../models/Question.js';
 import { Quiz } from '../models/Quiz.js';
 import { Topic } from '../models/Topic.js';
 import { Membership } from '../models/Membership.js';
-import { LiveResult } from '../models/LiveResult.js';
+import { Answer } from '../models/Answer.js';
+import { Attempt } from '../models/Attempt.js';
 import crypto from 'crypto';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -12,6 +13,7 @@ interface Participant {
   socketId: string;
   userId: string;
   displayName: string;
+  connected: boolean;
 }
 
 interface StudentAnswer {
@@ -35,6 +37,68 @@ interface LiveSession {
   // answers[userId][questionIndex] = StudentAnswer
   answers: Record<string, Record<number, StudentAnswer>>;
   createdAt: Date;
+  finishCount: number;          // how many students have submitted all answers
+  totalDurationSec: number;     // quiz duration in seconds (set when quiz starts)
+  endTimer: NodeJS.Timeout | null; // auto-end timer reference
+}
+
+async function endQuizSession(session: LiveSession, pin: string, io: SocketIOServer) {
+  if (session.status === 'finished') return;
+  session.status = 'finished';
+  Quiz.findByIdAndUpdate(session.quizId, { status: 'finished' }).catch(() => {});
+
+  const leaderboard = buildLeaderboard(session);
+
+  // Persist results
+  try {
+    const totalPoints = session.questions.reduce((sum, q) => sum + q.points, 0);
+    // Create Attempt and Answer records so live results appear in normal quiz history
+    for (const entry of leaderboard) {
+      try {
+        const attempt = await Attempt.create({
+          userId: entry.userId,
+          quizId: session.quizId,
+          status: 'submitted',
+          score: entry.score,
+          totalPoints,
+          submittedAt: new Date(),
+        });
+
+        const userAnswers = session.answers[entry.userId] || {};
+        const answerDocs = session.questions.map((q, idx) => {
+          const ans = userAnswers[idx];
+          return {
+            attemptId: attempt._id,
+            questionId: q._id,
+            answer: ans?.answer || '',
+            isCorrect: ans?.correct || false,
+            points: ans?.points || 0,
+          };
+        });
+
+        await Answer.insertMany(answerDocs);
+      } catch (err) {
+        console.error(`Failed to persist live result for user ${entry.userId}:`, err);
+      }
+    }
+
+  } catch (err) {
+    console.error('Failed to persist live results:', err);
+  }
+
+  io.to(`live:${pin}`).emit('quiz_ended', { leaderboard });
+
+  // Clean up timer if any
+  if (session.endTimer) {
+    clearTimeout(session.endTimer);
+    session.endTimer = null;
+  }
+
+  // Keep session for 5 minutes for late viewers
+  setTimeout(() => {
+    sessions.delete(pin);
+    quizIdToPin.delete(session.quizId);
+  }, 5 * 60 * 1000);
 }
 
 // ─── Session Store ───────────────────────────────────────────────────────────
@@ -71,12 +135,13 @@ function generatePin(): string {
 
 function sanitizeQuestion(q: IQuestion, index: number) {
   // Strip isCorrect from options before sending to students
+  // Use order from DB (fallback to index) to match normal quiz question format
   return {
     _id: q._id,
     text: q.text,
     type: q.type,
     points: q.points,
-    questionIndex: index,
+    order: q.order ?? index,
     options: q.options?.map((opt) => ({ text: opt.text })) || [],
   };
 }
@@ -149,14 +214,17 @@ export async function createLiveSession(
     pin,
     quizId,
     classId: topic.classId.toString(),
-    teacherSocketId: null, // Set when teacher connects via socket
+    teacherSocketId: null,
     teacherUserId,
     status: 'waiting',
     participants: [],
     questions,
-    currentQuestionIndex: -1, // Not started yet
+    currentQuestionIndex: -1,
     answers: {},
     createdAt: new Date(),
+    finishCount: 0,
+    totalDurationSec: 0,
+    endTimer: null,
   };
 
   sessions.set(pin, session);
@@ -272,8 +340,9 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     const isReconnect = existingIdx >= 0;
 
     if (isReconnect) {
-      // Update socket ID for reconnect
+      // Update socket ID for reconnect and mark as connected
       session.participants[existingIdx].socketId = socket.id;
+      session.participants[existingIdx].connected = true;
     } else {
       // New join — only allowed during waiting
       if (session.status !== 'waiting') {
@@ -284,6 +353,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
         socketId: socket.id,
         userId: user._id.toString(),
         displayName: data.displayName || user.name,
+        connected: true,
       });
     }
 
@@ -294,18 +364,35 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     const quiz = await Quiz.findById(session.quizId);
     socket.emit('join_success', {
       pin: data.pin,
+      quizId: session.quizId,
       quizTitle: quiz?.title || 'Live Quiz',
       participantCount: session.participants.length,
     });
 
     // Bug #16 fix: If session is already active, send current question to reconnecting student
-    if (isReconnect && session.status === 'active' && session.currentQuestionIndex >= 0) {
-      const currentQ = session.questions[session.currentQuestionIndex];
+    if (isReconnect && session.status === 'active') {
+      // Send full quiz data for reconnecting students (all-questions-at-once mode)
+      const sanitizedQuestions = session.questions.map((q, i) => sanitizeQuestion(q, i));
+      const reconnectQuiz = await Quiz.findById(session.quizId);
+      
+      // Extract existing answers to restore client state
+      const existingAnswers: Record<number, any> = {};
+      const userAns = session.answers[user._id.toString()];
+      if (userAns) {
+        for (const [qIdx, ansData] of Object.entries(userAns)) {
+          existingAnswers[parseInt(qIdx, 10)] = ansData;
+        }
+      }
+      
       socket.emit('quiz_started', {
-        questionIndex: session.currentQuestionIndex,
-        question: sanitizeQuestion(currentQ, session.currentQuestionIndex),
-        timeLimit: quiz?.duration ? Math.floor((quiz.duration * 60) / session.questions.length) : 30,
+        quizId: session.quizId,
+        allQuestions: sanitizedQuestions,
+        totalDurationSec: session.totalDurationSec,
         totalQuestions: session.questions.length,
+        allowBacktrack: false,
+        existingAnswers,
+        shuffleQuestions: reconnectQuiz?.shuffleQuestions ?? false,
+        shuffleOptions: reconnectQuiz?.shuffleOptions ?? false,
       });
     }
 
@@ -345,20 +432,33 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
 
     session.status = 'active';
     session.currentQuestionIndex = 0;
+    session.finishCount = 0;
+
+    const quiz = await Quiz.findById(session.quizId);
+    const durationMin = quiz?.duration || 10;
+    session.totalDurationSec = durationMin * 60;
 
     // Update quiz status in DB
     await Quiz.findByIdAndUpdate(session.quizId, { status: 'in_progress' });
 
-    const q = session.questions[0];
-    const quiz = await Quiz.findById(session.quizId);
+    const sanitizedQuestions = session.questions.map((q, i) => sanitizeQuestion(q, i));
 
-    // Broadcast first question to everyone
+    // Broadcast full quiz to everyone (all-questions-at-once mode)
     io.to(`live:${data.pin}`).emit('quiz_started', {
-      questionIndex: 0,
-      question: sanitizeQuestion(q, 0),
-      timeLimit: quiz?.duration ? Math.floor((quiz.duration * 60) / session.questions.length) : 30,
+      quizId: session.quizId,
+      allQuestions: sanitizedQuestions,
+      totalDurationSec: session.totalDurationSec,
       totalQuestions: session.questions.length,
+      allowBacktrack: false,
+      shuffleQuestions: quiz?.shuffleQuestions ?? false,
+      shuffleOptions: quiz?.shuffleOptions ?? false,
     });
+
+    // Start auto-end timer
+    session.endTimer = setTimeout(() => {
+
+      endQuizSession(session, data.pin, io);
+    }, session.totalDurationSec * 1000);
   });
 
   // ── submit_answer ──────────────────────────────────────────────────────────
@@ -396,8 +496,24 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
       const correctOption = question.options?.find((o) => o.isCorrect);
       correct = correctOption?.text === data.answer;
       if (correct) points = question.points;
+    } else if (question.type === 'short_answer') {
+      let studentAnswer = data.answer;
+      if (!question.spaceSensitive) studentAnswer = studentAnswer.trim().replace(/\s+/g, ' ');
+      if (!question.caseSensitive) studentAnswer = studentAnswer.toLowerCase();
+
+      for (const opt of question.options || []) {
+        if (!opt.isCorrect) continue;
+        let correctText = opt.text;
+        if (!question.spaceSensitive) correctText = correctText.trim().replace(/\s+/g, ' ');
+        if (!question.caseSensitive) correctText = correctText.toLowerCase();
+
+        if (studentAnswer === correctText) {
+          correct = true;
+          break;
+        }
+      }
+      if (correct) points = question.points;
     }
-    // Essay questions are not auto-graded in live mode
 
     session.answers[userId][data.questionIndex] = {
       answer: data.answer,
@@ -420,106 +536,133 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
         count: answerCount,
         total: session.participants.length,
       });
+
+      // Rebuild and emit live leaderboard so teacher sees who rises per question
+      const liveLeaderboard = buildLeaderboard(session);
+      const answeredCounts: Record<string, number> = {};
+      for (const p of session.participants) {
+        answeredCounts[p.userId] = Object.keys(session.answers[p.userId] || {}).length;
+      }
+      io.to(session.teacherSocketId).emit('leaderboard_update', {
+        leaderboard: liveLeaderboard,
+        answeredCounts,
+        totalQuestions: session.questions.length,
+      });
     }
   });
 
-  // ── next_question ──────────────────────────────────────────────────────────
-  socket.on('next_question', async (data: { pin: string }) => {
+  // ── submit_all_answers ─────────────────────────────────────────────────────
+  socket.on('submit_all_answers', (data: { pin: string; answers: { questionIndex: number; answer: string; timeMs: number }[] }) => {
     const session = sessions.get(data.pin);
-    if (!session || session.status !== 'active') return;
-
-    if (session.teacherUserId !== user._id.toString()) return;
-
-    // First, broadcast result of current question
-    const currentQ = session.questions[session.currentQuestionIndex];
-    if (currentQ) {
-      const correctOption = currentQ.options?.find((o) => o.isCorrect);
-
-      // Count correct/wrong for stats
-      let correctCount = 0;
-      let totalAnswered = 0;
-      for (const userId of Object.keys(session.answers)) {
-        const ans = session.answers[userId][session.currentQuestionIndex];
-        if (ans) {
-          totalAnswered++;
-          if (ans.correct) correctCount++;
-        }
-      }
-
-      io.to(`live:${data.pin}`).emit('question_result', {
-        questionIndex: session.currentQuestionIndex,
-        correctAnswer: correctOption?.text || '',
-        stats: {
-          totalAnswered,
-          correctCount,
-          wrongCount: totalAnswered - correctCount,
-        },
-      });
-    }
-
-    // Move to next question
-    session.currentQuestionIndex++;
-
-    if (session.currentQuestionIndex >= session.questions.length) {
-      // Quiz is done
-      session.status = 'finished';
-      await Quiz.findByIdAndUpdate(session.quizId, { status: 'finished' });
-
-      const leaderboard = buildLeaderboard(session);
-
-      // Bug #12 fix: Persist all live quiz results to DB
-      try {
-        const totalPoints = session.questions.reduce((sum, q) => sum + q.points, 0);
-        for (const entry of leaderboard) {
-          const userAnswers = session.answers[entry.userId] || {};
-          const answerDocs = session.questions.map((q, idx) => {
-            const ans = userAnswers[idx];
-            return {
-              questionId: q._id,
-              answer: ans?.answer || '',
-              isCorrect: ans?.correct || false,
-              points: ans?.points || 0,
-            };
-          });
-
-          await LiveResult.findOneAndUpdate(
-            { sessionPin: data.pin, quizId: session.quizId, userId: entry.userId },
-            {
-              score: entry.score,
-              totalPoints,
-              answers: answerDocs,
-              rank: entry.rank,
-            },
-            { upsert: true, new: true }
-          );
-        }
-        console.log(`🏆 Live results persisted for ${leaderboard.length} participants`);
-      } catch (err) {
-        console.error('Failed to persist live results:', err);
-      }
-
-      io.to(`live:${data.pin}`).emit('quiz_ended', { leaderboard });
-
-      // Clean up after a delay
-      setTimeout(() => {
-        sessions.delete(data.pin);
-        quizIdToPin.delete(session.quizId);
-      }, 5 * 60 * 1000); // Keep for 5 minutes for late viewers
-
+    if (!session || session.status !== 'active') {
+      socket.emit('join_error', { message: 'No active session' });
       return;
     }
 
-    // Broadcast next question
-    const nextQ = session.questions[session.currentQuestionIndex];
-    const quiz = await Quiz.findById(session.quizId);
+    const userId = user._id.toString();
 
-    io.to(`live:${data.pin}`).emit('question_start', {
-      questionIndex: session.currentQuestionIndex,
-      question: sanitizeQuestion(nextQ, session.currentQuestionIndex),
-      timeLimit: quiz?.duration ? Math.floor((quiz.duration * 60) / session.questions.length) : 30,
-      totalQuestions: session.questions.length,
-    });
+    // Initialize answers for this user if needed
+    if (!session.answers[userId]) {
+      session.answers[userId] = {};
+    }
+
+    // Grade all submitted answers
+    for (const ans of data.answers) {
+      if (ans.questionIndex < 0 || ans.questionIndex >= session.questions.length) continue;
+      // Don't overwrite existing answers
+      if (session.answers[userId][ans.questionIndex]) continue;
+
+      const question = session.questions[ans.questionIndex];
+      let correct = false;
+      let points = 0;
+
+      if (question.type === 'multiple_choice') {
+        const correctOption = question.options?.find((o) => o.isCorrect);
+        correct = correctOption?.text === ans.answer;
+        if (correct) points = question.points;
+      } else if (question.type === 'short_answer') {
+        let studentAnswer = ans.answer;
+        if (!question.spaceSensitive) studentAnswer = studentAnswer.trim().replace(/\s+/g, ' ');
+        if (!question.caseSensitive) studentAnswer = studentAnswer.toLowerCase();
+
+        for (const opt of question.options || []) {
+          if (!opt.isCorrect) continue;
+          let correctText = opt.text;
+          if (!question.spaceSensitive) correctText = correctText.trim().replace(/\s+/g, ' ');
+          if (!question.caseSensitive) correctText = correctText.toLowerCase();
+
+          if (studentAnswer === correctText) {
+            correct = true;
+            break;
+          }
+        }
+        if (correct) points = question.points;
+      }
+
+      session.answers[userId][ans.questionIndex] = {
+        answer: ans.answer,
+        timeMs: ans.timeMs || 0,
+        correct,
+        points,
+      };
+    }
+
+    session.finishCount++;
+
+    // Acknowledge to student
+    socket.emit('answer_received', { finished: true });
+
+    // Notify teacher of progress + latest live leaderboard
+    const connectedParticipants = session.participants.filter((p) => p.connected).length;
+    if (session.teacherSocketId) {
+      const liveLeaderboard = buildLeaderboard(session);
+      const answeredCounts: Record<string, number> = {};
+      for (const p of session.participants) {
+        answeredCounts[p.userId] = Object.keys(session.answers[p.userId] || {}).length;
+      }
+      io.to(session.teacherSocketId).emit('leaderboard_update', {
+        leaderboard: liveLeaderboard,
+        answeredCounts,
+        totalQuestions: session.questions.length,
+      });
+      io.to(session.teacherSocketId).emit('student_finished', {
+        finishCount: session.finishCount,
+        total: connectedParticipants,
+        displayName: session.participants.find((p) => p.userId === userId)?.displayName || '',
+      });
+    }
+
+    // Auto-end if all connected students have finished
+    if (session.finishCount >= connectedParticipants && connectedParticipants > 0) {
+
+      if (session.endTimer) {
+        clearTimeout(session.endTimer);
+        session.endTimer = null;
+      }
+      endQuizSession(session, data.pin, io);
+    }
   });
+
+  // ── force_end ─────────────────────────────────────────────────────────────
+  socket.on('force_end', async (data: { pin: string }) => {
+    const session = sessions.get(data.pin);
+    if (!session) {
+      socket.emit('join_error', { message: 'Session not found' });
+      return;
+    }
+    if (session.teacherUserId !== user._id.toString()) {
+      socket.emit('join_error', { message: 'Only the teacher can end the quiz' });
+      return;
+    }
+    if (session.status !== 'active') {
+      socket.emit('join_error', { message: 'Session is not active' });
+      return;
+    }
+
+    await endQuizSession(session, data.pin, io);
+  });
+
+
 
   // ── disconnect ─────────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
@@ -535,12 +678,24 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
       // Student disconnect
       const idx = session.participants.findIndex((p) => p.socketId === socket.id);
       if (idx >= 0) {
-        const removed = session.participants[idx];
-        // Don't remove from participants (they might reconnect), just notify
+        const participant = session.participants[idx];
+        participant.connected = false;
+        const activeCount = session.participants.filter((p) => p.connected).length;
         io.to(`live:${pin}`).emit('participant_left', {
-          displayName: removed.displayName,
-          participantCount: session.participants.length,
+          displayName: participant.displayName,
+          participantCount: activeCount,
+          totalParticipants: session.participants.length,
         });
+
+        // Auto-end check: if all remaining connected students have finished
+        if (session.status === 'active' && activeCount > 0 && session.finishCount >= activeCount) {
+
+          if (session.endTimer) {
+            clearTimeout(session.endTimer);
+            session.endTimer = null;
+          }
+          endQuizSession(session, pin, io);
+        }
       }
     }
   });

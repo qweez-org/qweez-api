@@ -8,9 +8,11 @@ export interface IQuestionOption {
 export interface IQuestion extends Document {
   _id: mongoose.Types.ObjectId;
   quizId: mongoose.Types.ObjectId;
-  type: 'multiple_choice' | 'essay';
+  type: 'multiple_choice' | 'short_answer';
   text: string;
   options: IQuestionOption[];
+  caseSensitive?: boolean;
+  spaceSensitive?: boolean;
   points: number;
   order: number;
   createdAt: Date;
@@ -20,7 +22,7 @@ export interface IQuestion extends Document {
 const questionSchema = new Schema<IQuestion>(
   {
     quizId: { type: Schema.Types.ObjectId, ref: 'Quiz', required: true },
-    type: { type: String, required: true, enum: ['multiple_choice', 'essay'], default: 'multiple_choice' },
+    type: { type: String, required: true, enum: ['multiple_choice', 'short_answer'], default: 'multiple_choice' },
     text: { type: String, required: true },
     options: [
       {
@@ -28,6 +30,8 @@ const questionSchema = new Schema<IQuestion>(
         isCorrect: { type: Boolean, required: true, default: false },
       },
     ],
+    caseSensitive: { type: Boolean, default: false },
+    spaceSensitive: { type: Boolean, default: false },
     points: { type: Number, required: true, default: 10 },
     order: { type: Number, required: true, default: 0 },
   },
