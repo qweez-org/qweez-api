@@ -123,6 +123,7 @@ const createQuizSchema = Joi.object({
   allowBacktrack: Joi.boolean(),
   shuffleQuestions: Joi.boolean(),
   shuffleOptions: Joi.boolean(),
+  showAnswerKey: Joi.boolean(),
 });
 
 router.post('/topics/:topicId', auth, authorize('teacher'), validateObjectIdParam('topicId'), validate(createQuizSchema), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -150,18 +151,19 @@ router.post('/topics/:topicId', auth, authorize('teacher'), validateObjectIdPara
       return;
     }
 
-    const { title, duration, mode, attemptLimit, scheduledOpen, scheduledClose, description, allowBacktrack, shuffleQuestions, shuffleOptions } = req.body;
+    const { title, duration, mode, attemptLimit, scheduledOpen, scheduledClose, description, allowBacktrack, shuffleQuestions, shuffleOptions, showAnswerKey } = req.body;
     const quiz = new Quiz({
       title,
       description,
       duration,
       mode,
-      attemptLimit,
+      attemptLimit: mode === 'live' ? 1 : attemptLimit,
       scheduledOpen,
       scheduledClose,
       allowBacktrack,
       shuffleQuestions,
       shuffleOptions,
+      showAnswerKey,
       topicId: req.params.topicId,
       status: 'draft',
     });
@@ -212,6 +214,7 @@ const updateQuizSchema = Joi.object({
   allowBacktrack: Joi.boolean(),
   shuffleQuestions: Joi.boolean(),
   shuffleOptions: Joi.boolean(),
+  showAnswerKey: Joi.boolean(),
 });
 
 router.patch('/:quizId', auth, authorize('teacher'), validateObjectIdParam('quizId'), validate(updateQuizSchema), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -222,7 +225,12 @@ router.patch('/:quizId', auth, authorize('teacher'), validateObjectIdParam('quiz
       return;
     }
 
-    const quiz = await Quiz.findByIdAndUpdate(req.params.quizId, req.body, { new: true });
+    // Enforce attemptLimit=1 for live quizzes
+    const updates = { ...req.body };
+    if (updates.mode === 'live' || (!updates.mode && (await Quiz.findById(req.params.quizId))?.mode === 'live')) {
+      updates.attemptLimit = 1;
+    }
+    const quiz = await Quiz.findByIdAndUpdate(req.params.quizId, updates, { new: true });
     if (!quiz) {
       res.status(404).json({ message: 'Quiz not found' });
       return;

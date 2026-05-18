@@ -11,6 +11,7 @@ import os from 'os';
 import { env } from './config/env.js';
 import { connectDB } from './config/db.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { requestLogger } from './middleware/requestLogger.js';
 import { setupSocketIO } from './socket/index.js';
 import { startScheduler } from './utils/scheduler.js';
 
@@ -111,6 +112,11 @@ const limiter = rateLimit({
   message: { message: 'Too many requests, please try again later.' },
 });
 app.use('/api/', limiter);
+
+// Request logger (development only)
+if (env.NODE_ENV === 'development') {
+  app.use(requestLogger);
+}
 
 // Routes
 app.use('/api/auth', authRoutes);

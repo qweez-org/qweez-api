@@ -51,6 +51,7 @@ router.post('/:quizId/live/start', auth, authorize('teacher'), validateObjectIdP
       questionCount: result.questionCount,
     });
   } catch (error: any) {
+    console.error('\x1b[31m❌ Error\x1b[0m live/start:', error.message || error);
     res.status(400).json({ message: error.message || 'Failed to start live quiz' });
   }
 });
@@ -64,6 +65,7 @@ router.post('/:quizId/live/cancel', auth, authorize('teacher'), validateObjectId
 
     res.json({ message: 'Live quiz cancelled' });
   } catch (error) {
+    console.error('\x1b[31m❌ Error\x1b[0m live/cancel:', error);
     res.status(500).json({ message: 'Failed to cancel live quiz' });
   }
 });
@@ -106,6 +108,7 @@ router.get('/:quizId/live/participants', auth, validateObjectIdParam('quizId'), 
       status: session.status,
     });
   } catch (error) {
+    console.error('\x1b[31m❌ Error\x1b[0m live/participants:', error);
     res.status(500).json({ message: 'Failed to get participants' });
   }
 });
@@ -187,6 +190,7 @@ router.get('/:quizId/live/leaderboard', auth, validateObjectIdParam('quizId'), a
 
     res.json({ leaderboard });
   } catch (error) {
+    console.error('\x1b[31m❌ Error\x1b[0m live/leaderboard:', error);
     res.status(500).json({ message: 'Failed to get leaderboard' });
   }
 });

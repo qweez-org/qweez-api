@@ -45,7 +45,8 @@ interface LiveSession {
 async function endQuizSession(session: LiveSession, pin: string, io: SocketIOServer) {
   if (session.status === 'finished') return;
   session.status = 'finished';
-  Quiz.findByIdAndUpdate(session.quizId, { status: 'finished' }).catch(() => {});
+  console.log(`\x1b[35m🎮 Live\x1b[0m   Session \x1b[1m${pin}\x1b[0m ended  \x1b[2m(${session.participants.length} participants)\x1b[0m`);
+  Quiz.findByIdAndUpdate(session.quizId, { status: 'finished' }).catch((e) => console.error('Failed to update quiz status to finished:', e));
 
   const leaderboard = buildLeaderboard(session);
 
@@ -84,6 +85,12 @@ async function endQuizSession(session: LiveSession, pin: string, io: SocketIOSer
 
   } catch (err) {
     console.error('Failed to persist live results:', err);
+  }
+
+  // Log leaderboard summary
+  if (leaderboard.length > 0) {
+    const top = leaderboard.slice(0, 3).map((e) => `${e.displayName}:${e.score}pts`).join(', ');
+    console.log(`\x1b[35m🎮 Live\x1b[0m   Leaderboard \x1b[1m${pin}\x1b[0m  \x1b[2mTop: ${top}\x1b[0m`);
   }
 
   io.to(`live:${pin}`).emit('quiz_ended', { leaderboard });
@@ -244,6 +251,7 @@ export function cancelLiveSession(quizId: string, io?: SocketIOServer): void {
   const session = sessions.get(pin);
   if (!session) return;
 
+  console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[33mSession cancelled\x1b[0m \x1b[1m${pin}\x1b[0m`);
   io?.to(`live:${pin}`).emit('session_cancelled', { reason: 'Teacher cancelled the session' });
 
   sessions.delete(pin);
@@ -282,6 +290,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     // Register teacher socket and join room
     session.teacherSocketId = socket.id;
     socket.join(`live:${data.pin}`);
+    console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[2m${user.name}\x1b[0m teacher_ready session \x1b[1m${data.pin}\x1b[0m`);
 
     socket.emit('session_info', {
       pin: session.pin,
@@ -359,6 +368,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
 
     // Join the live room
     socket.join(`live:${data.pin}`);
+    console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[2m${data.displayName || user.name}\x1b[0m ${isReconnect ? 'reconnected to' : 'joined'} session \x1b[1m${data.pin}\x1b[0m  \x1b[2m(${session.participants.length} total)\x1b[0m`);
 
     // Confirm to the joining student
     const quiz = await Quiz.findById(session.quizId);
@@ -433,6 +443,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     session.status = 'active';
     session.currentQuestionIndex = 0;
     session.finishCount = 0;
+    console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[1mQuiz started\x1b[0m session \x1b[1m${data.pin}\x1b[0m  \x1b[2m(${session.participants.length} participants, ${session.questions.length} questions)\x1b[0m`);
 
     const quiz = await Quiz.findById(session.quizId);
     const durationMin = quiz?.duration || 10;
@@ -455,8 +466,9 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     });
 
     // Start auto-end timer
+    console.log(`\x1b[35m🎮 Live\x1b[0m   Timer set \x1b[2m${session.totalDurationSec}s\x1b[0m for session \x1b[1m${data.pin}\x1b[0m`);
     session.endTimer = setTimeout(() => {
-
+      console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[33m⏰ Timer expired\x1b[0m session \x1b[1m${data.pin}\x1b[0m`);
       endQuizSession(session, data.pin, io);
     }, session.totalDurationSec * 1000);
   });
@@ -608,6 +620,9 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     }
 
     session.finishCount++;
+    const connectedCount = session.participants.filter((p) => p.connected).length;
+    const finisherName = session.participants.find((p) => p.userId === userId)?.displayName || userId;
+    console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[2m${finisherName}\x1b[0m finished session \x1b[1m${data.pin}\x1b[0m  \x1b[2m(${session.finishCount}/${connectedCount} done)\x1b[0m`);
 
     // Acknowledge to student
     socket.emit('answer_received', { finished: true });
@@ -634,7 +649,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
 
     // Auto-end if all connected students have finished
     if (session.finishCount >= connectedParticipants && connectedParticipants > 0) {
-
+      console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[32mAll ${connectedParticipants} students finished\x1b[0m session \x1b[1m${data.pin}\x1b[0m`);
       if (session.endTimer) {
         clearTimeout(session.endTimer);
         session.endTimer = null;
@@ -659,6 +674,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
       return;
     }
 
+    console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[1mForce end\x1b[0m session \x1b[1m${data.pin}\x1b[0m by \x1b[2m${user.name}\x1b[0m`);
     await endQuizSession(session, data.pin, io);
   });
 
@@ -671,6 +687,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
       // Teacher disconnect
       if (session.teacherSocketId === socket.id) {
         session.teacherSocketId = null;
+        console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[33mTeacher disconnected\x1b[0m from session \x1b[1m${pin}\x1b[0m`);
         io.to(`live:${pin}`).emit('teacher_disconnected', {});
         continue;
       }

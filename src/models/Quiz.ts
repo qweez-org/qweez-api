@@ -14,6 +14,7 @@ export interface IQuiz extends Document {
   shuffleQuestions: boolean;
   shuffleOptions: boolean;
   allowBacktrack: boolean;
+  showAnswerKey: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -37,6 +38,7 @@ const quizSchema = new Schema<IQuiz>(
     shuffleQuestions: { type: Boolean, default: false },
     shuffleOptions: { type: Boolean, default: false },
     allowBacktrack: { type: Boolean, default: true },
+    showAnswerKey: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

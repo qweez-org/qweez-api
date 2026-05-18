@@ -33,7 +33,7 @@ export const setupSocketIO = (io: SocketIOServer): void => {
 
   io.on('connection', (socket) => {
     const user = (socket as any).user;
-
+    console.log(`\x1b[36m⚡ Socket\x1b[0m  \x1b[2m${user.name}\x1b[0m connected  \x1b[2m(${socket.id})\x1b[0m`);
 
     // Fix #31: Verify membership before allowing class room join
     socket.on('join:class', async (classId: string) => {
@@ -52,9 +52,10 @@ export const setupSocketIO = (io: SocketIOServer): void => {
 
         if (isOwner || isMember) {
           socket.join(`class:${classId}`);
+          console.log(`\x1b[36m⚡ Socket\x1b[0m  \x1b[2m${user.name}\x1b[0m joined class room  \x1b[2m${classId}\x1b[0m`);
         }
       } catch (e) {
-        // Silently reject unauthorized joins
+        console.error(`\x1b[36m⚡ Socket\x1b[0m  \x1b[31mError\x1b[0m join:class for ${user.name}:`, e);
       }
     });
 
@@ -83,9 +84,10 @@ export const setupSocketIO = (io: SocketIOServer): void => {
 
         if (isOwner || isMember) {
           socket.join(`quiz:${quizId}`);
+          console.log(`\x1b[36m⚡ Socket\x1b[0m  \x1b[2m${user.name}\x1b[0m joined quiz room  \x1b[2m${quizId}\x1b[0m`);
         }
       } catch (e) {
-        // Silently reject unauthorized joins
+        console.error(`\x1b[36m⚡ Socket\x1b[0m  \x1b[31mError\x1b[0m join:quiz for ${user.name}:`, e);
       }
     });
 
@@ -98,7 +100,7 @@ export const setupSocketIO = (io: SocketIOServer): void => {
     registerLiveQuizHandlers(io, socket);
 
     socket.on('disconnect', () => {
-
+      console.log(`\x1b[36m⚡ Socket\x1b[0m  \x1b[2m${user.name}\x1b[0m disconnected  \x1b[2m(${socket.id})\x1b[0m`);
     });
   });
 };

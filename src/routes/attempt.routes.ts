@@ -253,4 +253,77 @@ router.get('/', auth, async (req: AuthRequest, res: Response): Promise<void> => 
   }
 });
 
+// GET /api/attempts/:attemptId/review — answer key review for students
+router.get('/:attemptId/review', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const attempt = await Attempt.findById(req.params.attemptId);
+    if (!attempt) {
+      res.status(404).json({ message: 'Attempt not found' });
+      return;
+    }
+
+    // Must be the student's own attempt
+    if (attempt.userId.toString() !== req.user!._id.toString()) {
+      res.status(403).json({ message: 'Access denied' });
+      return;
+    }
+
+    if (attempt.status !== 'submitted') {
+      res.status(400).json({ message: 'Attempt not yet submitted' });
+      return;
+    }
+
+    const quiz = await Quiz.findById(attempt.quizId);
+    if (!quiz) {
+      res.status(404).json({ message: 'Quiz not found' });
+      return;
+    }
+
+    // Guard: teacher must have enabled showAnswerKey
+    if (!quiz.showAnswerKey) {
+      res.status(403).json({ message: 'Kunci jawaban belum dibuka oleh guru.' });
+      return;
+    }
+
+    // Guard: student must have used all attempts
+    const attemptCount = await Attempt.countDocuments({ userId: req.user!._id, quizId: quiz._id });
+    if (attemptCount < quiz.attemptLimit) {
+      res.status(403).json({ message: 'Selesaikan semua attempt terlebih dahulu.' });
+      return;
+    }
+
+    // Fetch questions with correct answers and student's answers
+    const questions = await Question.find({ quizId: quiz._id }).sort({ order: 1, createdAt: 1 });
+    const answers = await Answer.find({ attemptId: attempt._id });
+
+    const review = questions.map((q) => {
+      const studentAnswer = answers.find((a) => a.questionId.toString() === q._id.toString());
+      const correctOptions = q.options.filter((o) => o.isCorrect).map((o) => o.text);
+
+      return {
+        _id: q._id,
+        text: q.text,
+        type: q.type,
+        points: q.points,
+        studentAnswer: studentAnswer?.answer ?? null,
+        isCorrect: studentAnswer?.isCorrect ?? false,
+        earnedPoints: studentAnswer?.points ?? 0,
+        correctAnswers: correctOptions,
+        options: q.type === 'multiple_choice'
+          ? q.options.map((o) => ({ text: o.text, isCorrect: o.isCorrect }))
+          : undefined,
+      };
+    });
+
+    res.json({
+      review,
+      quiz: { title: quiz.title, _id: quiz._id },
+      attempt: { score: attempt.score, totalPoints: attempt.totalPoints },
+    });
+  } catch (error) {
+    console.error('\x1b[31m❌ Error\x1b[0m attempt review:', error);
+    res.status(500).json({ message: 'Failed to fetch review' });
+  }
+});
+
 export default router;
