@@ -7,6 +7,7 @@ import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import { getManageableClassForTeacher } from '../utils/access.js';
 import { validate } from '../middleware/validate.js';
+import { validateObjectIdParam } from '../middleware/validateObjectId.js';
 
 const router = Router();
 
@@ -73,7 +74,7 @@ router.get('/', auth, async (req: AuthRequest, res: Response): Promise<void> => 
 });
 
 // GET /api/classes/:classId/join-requests — teacher views join requests for their class
-router.get('/:classId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:classId', auth, authorize('teacher'), validateObjectIdParam('classId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
     if (!manageable) {
@@ -96,7 +97,7 @@ router.get('/:classId', auth, authorize('teacher'), async (req: AuthRequest, res
 });
 
 // POST /api/classes/:classId/join-requests/:requestId/approve
-router.post('/:classId/approve/:requestId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:classId/approve/:requestId', auth, authorize('teacher'), validateObjectIdParam('classId'), validateObjectIdParam('requestId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
     if (!manageable) {
@@ -131,7 +132,7 @@ router.post('/:classId/approve/:requestId', auth, authorize('teacher'), async (r
 });
 
 // POST /api/classes/:classId/join-requests/:requestId/reject
-router.post('/:classId/reject/:requestId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:classId/reject/:requestId', auth, authorize('teacher'), validateObjectIdParam('classId'), validateObjectIdParam('requestId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const manageable = await getManageableClassForTeacher(req.params.classId, req.user!);
     if (!manageable) {

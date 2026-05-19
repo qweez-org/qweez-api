@@ -86,10 +86,19 @@ router.get('/:quizId/live/participants', auth, validateObjectIdParam('quizId'), 
       return;
     }
 
-    const manageable = await getManageableClassForTeacher(topic.classId.toString(), req.user!);
-    if (!manageable) {
-      res.status(403).json({ message: 'Access denied' });
-      return;
+    // Role-aware access: teachers must manage the class, students must be enrolled
+    if (req.user!.role === 'teacher') {
+      const manageable = await getManageableClassForTeacher(topic.classId.toString(), req.user!);
+      if (!manageable) {
+        res.status(403).json({ message: 'Access denied' });
+        return;
+      }
+    } else {
+      const cls = await getClassForUser(topic.classId.toString(), req.user!);
+      if (!cls) {
+        res.status(403).json({ message: 'Access denied' });
+        return;
+      }
     }
 
     const session = getSessionByQuizId(req.params.quizId);

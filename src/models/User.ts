@@ -8,6 +8,7 @@ export interface IUser extends Document {
   password?: string;
   role: 'teacher' | 'student';
   avatar?: string;
+  tokenInvalidatedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -20,6 +21,7 @@ const userSchema = new Schema<IUser>(
     password: { type: String, select: false },
     role: { type: String, required: true, enum: ['teacher', 'student'] },
     avatar: { type: String },
+    tokenInvalidatedAt: { type: Date },
   },
   { timestamps: true }
 );

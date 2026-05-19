@@ -356,7 +356,8 @@ async function seed() {
 
     for (const student of attemptStudents) {
       const startedAt = daysAgo(randBetween(1, 21));
-      const submittedAt = new Date(startedAt.getTime() + randBetween(3, quiz.duration) * 60000);
+      const elapsedMin = Math.max(1, randBetween(3, quiz.duration));
+      const submittedAt = new Date(startedAt.getTime() + elapsedMin * 60000);
 
       let totalPts = 0;
       let earnedPts = 0;

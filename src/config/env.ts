@@ -28,7 +28,7 @@ export const env = {
   REDIS_URL: process.env.REDIS_URL || '',
 };
 
-if (env.NODE_ENV !== 'development' && !env.REDIS_URL) {
+if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test' && !env.REDIS_URL) {
   console.error('❌ FATAL: REDIS_URL is required outside development for multi-instance Socket.IO.');
   process.exit(1);
 }

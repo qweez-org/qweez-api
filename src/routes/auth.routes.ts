@@ -1,7 +1,10 @@
 import { Router, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import bcryptjs from 'bcryptjs';
+import crypto from 'crypto';
 import Joi from 'joi';
 import { User } from '../models/User.js';
+import { PasswordResetToken } from '../models/PasswordResetToken.js';
 import { env } from '../config/env.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -217,10 +220,93 @@ router.post('/logout', auth, validate(logoutSchema), async (req: AuthRequest, re
         // ignore
       }
     }
+    // Invalidate all access tokens issued before now
+    await User.findByIdAndUpdate(req.user!._id, { tokenInvalidatedAt: new Date() });
+
     clearRefreshCookie(res);
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Logout failed' });
+  }
+});
+
+// ── Password Reset Flow (dev-only: token logged to console) ─────────────
+const forgotPasswordSchema = Joi.object({
+  email: Joi.string().email().required(),
+});
+
+router.post('/forgot-password', validate(forgotPasswordSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const user = await User.findOne({ email: req.body.email.toLowerCase().trim() });
+    if (!user) {
+      // Do not reveal whether email exists
+      res.json({ message: 'If an account exists, a reset link has been sent.' });
+      return;
+    }
+
+    // Delete any previous token for this user
+    await PasswordResetToken.deleteMany({ userId: user._id });
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = await bcryptjs.hash(rawToken, 10);
+
+    await PasswordResetToken.create({
+      userId: user._id,
+      tokenHash,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+    });
+
+    const resetUrl = `${env.NODE_ENV === 'development' ? 'http://localhost:5173' : env.CORS_ORIGIN.split(',')[0]}/reset-password?token=${rawToken}&userId=${user._id}`;
+
+    // ── DEV-ONLY: log token to console instead of sending email ──────────
+    console.log(`\n🔐 Password Reset Token (dev-only console log):`);
+    console.log(`   User: ${user.email}`);
+    console.log(`   URL:  ${resetUrl}`);
+    console.log(`   Expires in 1 hour\n`);
+
+    res.json({ message: 'If an account exists, a reset link has been sent.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to process request' });
+  }
+});
+
+const resetPasswordSchema = Joi.object({
+  token: Joi.string().required().length(64),
+  userId: Joi.string().required(),
+  password: Joi.string().required().min(6),
+});
+
+router.post('/reset-password', validate(resetPasswordSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { token, userId, password } = req.body;
+
+    const resetRecord = await PasswordResetToken.findOne({ userId });
+    if (!resetRecord) {
+      res.status(400).json({ message: 'Invalid or expired token' });
+      return;
+    }
+
+    const isValid = await bcryptjs.compare(token, resetRecord.tokenHash);
+    if (!isValid || resetRecord.expiresAt < new Date()) {
+      res.status(400).json({ message: 'Invalid or expired token' });
+      return;
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      res.status(400).json({ message: 'User not found' });
+      return;
+    }
+
+    const hashed = await bcryptjs.hash(password, 12);
+    await User.findByIdAndUpdate(userId, { password: hashed, tokenInvalidatedAt: new Date() });
+
+    // Clean up token
+    await PasswordResetToken.deleteOne({ _id: resetRecord._id });
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to reset password' });
   }
 });
 

@@ -19,8 +19,9 @@ export const scoreAttempt = async (attemptId: string): Promise<{ score: number; 
     if (!answer) continue;
 
     if (question.type === 'multiple_choice') {
-      const correctOption = question.options.find((o) => o.isCorrect);
-      if (correctOption && answer.answer === correctOption.text) {
+      const correctOptions = question.options.filter((o) => o.isCorrect);
+      const isCorrect = correctOptions.some((o) => o.text === answer.answer);
+      if (isCorrect) {
         answer.isCorrect = true;
         answer.points = question.points;
         score += question.points;

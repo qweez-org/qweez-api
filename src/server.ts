@@ -113,6 +113,16 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+// Stricter rate limiter for auth endpoints (brute-force protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: env.NODE_ENV === 'development' || env.NODE_ENV === 'test' ? 100 : 5,
+  message: { message: 'Too many authentication attempts, please try again later.' },
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/refresh', authLimiter);
+
 // Request logger (development only)
 if (env.NODE_ENV === 'development') {
   app.use(requestLogger);
@@ -141,6 +151,8 @@ app.get('/api/health', (_req, res) => {
 
 // Error handler
 app.use(errorHandler);
+
+export { app, httpServer, io };
 
 // Start
 const start = async (): Promise<void> => {
@@ -187,4 +199,7 @@ function getLocalIP(): string | null {
   return null;
 }
 
-start();
+// Only start the server when run directly (not imported by tests)
+if (process.env.NODE_ENV !== 'test') {
+  start();
+}
