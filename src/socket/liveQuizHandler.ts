@@ -142,6 +142,7 @@ function generatePin(): string {
 
 function sanitizeQuestion(q: IQuestion, index: number) {
   // Strip isCorrect from options before sending to students
+  // For short_answer, don't send options at all (they contain correct answers)
   // Use order from DB (fallback to index) to match normal quiz question format
   return {
     _id: q._id,
@@ -149,7 +150,7 @@ function sanitizeQuestion(q: IQuestion, index: number) {
     type: q.type,
     points: q.points,
     order: q.order ?? index,
-    options: q.options?.map((opt) => ({ text: opt.text })) || [],
+    options: q.type === 'short_answer' ? [] : (q.options?.map((opt) => ({ text: opt.text })) || []),
   };
 }
 

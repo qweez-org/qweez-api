@@ -208,8 +208,17 @@ router.post('/:attemptId/submit', auth, async (req: AuthRequest, res: Response):
       });
     }
 
+    // Compute whether student can view answer key after this submission
+    const quiz = await Quiz.findById(attempt.quizId);
+    let canViewAnswerKey = false;
+    if (quiz?.showAnswerKey) {
+      const attemptCount = await Attempt.countDocuments({ userId: req.user!._id, quizId: quiz._id });
+      const quizExpired = quiz.status === 'closed' || quiz.status === 'finished';
+      canViewAnswerKey = attemptCount >= quiz.attemptLimit || quizExpired;
+    }
+
     // Include earnedPoints alias for mobile compatibility
-    res.json({ attempt: freshAttempt, ...result, earnedPoints: result.score });
+    res.json({ attempt: freshAttempt, ...result, earnedPoints: result.score, canViewAnswerKey });
   } catch (error) {
     res.status(500).json({ message: 'Failed to submit attempt' });
   }
@@ -285,9 +294,10 @@ router.get('/:attemptId/review', auth, async (req: AuthRequest, res: Response): 
       return;
     }
 
-    // Guard: student must have used all attempts
+    // Guard: student must have used all attempts OR quiz must be closed/finished
     const attemptCount = await Attempt.countDocuments({ userId: req.user!._id, quizId: quiz._id });
-    if (attemptCount < quiz.attemptLimit) {
+    const quizExpired = quiz.status === 'closed' || quiz.status === 'finished';
+    if (attemptCount < quiz.attemptLimit && !quizExpired) {
       res.status(403).json({ message: 'Selesaikan semua attempt terlebih dahulu.' });
       return;
     }

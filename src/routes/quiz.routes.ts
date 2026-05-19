@@ -289,10 +289,13 @@ router.get('/:quizId/questions', auth, validateObjectIdParam('quizId'), async (r
     const questions = await Question.find({ quizId: req.params.quizId }).sort({ order: 1, createdAt: 1 });
 
     // Bug #6 fix: Strip isCorrect from options for student users
+    // For short_answer, don't send options at all (they contain correct answers)
     if (req.user!.role === 'student') {
       const sanitized = questions.map((q) => {
         const obj = q.toObject();
-        if (obj.options) {
+        if (obj.type === 'short_answer') {
+          obj.options = [] as any;
+        } else if (obj.options) {
           obj.options = obj.options.map((o: any) => ({ text: o.text })) as any;
         }
         return obj;
