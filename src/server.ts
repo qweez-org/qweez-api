@@ -13,7 +13,6 @@ import { connectDB } from './config/db.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { setupSocketIO } from './socket/index.js';
-import { startScheduler } from './utils/scheduler.js';
 
 // Route imports
 import authRoutes from './routes/auth.routes.js';
@@ -30,6 +29,7 @@ import liveQuizRoutes from './routes/liveQuiz.routes.js';
 import coTeacherRoutes from './routes/coTeacher.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import exportRoutes from './routes/export.routes.js';
+import schedulerRoutes from './routes/scheduler.routes.js';
 
 const allowedOrigins = env.CORS_ORIGIN
   .split(',')
@@ -143,6 +143,7 @@ app.use('/api/quizzes', liveQuizRoutes);
 app.use('/api/classes', coTeacherRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/export', exportRoutes);
+app.use('/api/jobs/scheduler', schedulerRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -167,8 +168,6 @@ const start = async (): Promise<void> => {
 
     io.adapter(createAdapter(pubClient, subClient));
   }
-
-  startScheduler(io);
 
   httpServer.listen(env.PORT, '0.0.0.0', () => {
     const localIP = getLocalIP();

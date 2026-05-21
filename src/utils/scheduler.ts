@@ -6,11 +6,10 @@ import { Notification } from '../models/Notification.js';
 import { Attempt } from '../models/Attempt.js';
 import { scoreAttempt } from './scoring.js';
 
-export const startScheduler = (io?: SocketIOServer): void => {
-  console.log('⏰ Quiz scheduler started (checking every 60s)');
+export const runScheduler = async (io?: SocketIOServer): Promise<void> => {
+  console.log('⏰ Running scheduled quiz job...');
 
-  setInterval(async () => {
-    try {
+  try {
       const now = new Date();
 
       // Find quizzes that should be opened
@@ -121,5 +120,4 @@ export const startScheduler = (io?: SocketIOServer): void => {
     } catch (error) {
       console.error('⏰ Scheduler error:', error);
     }
-  }, 60 * 1000);
 };

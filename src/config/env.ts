@@ -26,6 +26,8 @@ export const env = {
   CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
   // Required for multi-instance Socket.IO deployments
   REDIS_URL: process.env.REDIS_URL || '',
+  // Secret for webhook triggers
+  CRON_SECRET: process.env.CRON_SECRET || '',
 };
 
 if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test' && !env.REDIS_URL) {
