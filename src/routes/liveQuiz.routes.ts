@@ -60,7 +60,7 @@ router.post('/:quizId/live/start', auth, authorize('teacher'), validateObjectIdP
 router.post('/:quizId/live/cancel', auth, authorize('teacher'), validateObjectIdParam('quizId'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const io = req.app.get('io');
-    cancelLiveSession(req.params.quizId, io);
+    await cancelLiveSession(req.params.quizId, io);
     await Quiz.findByIdAndUpdate(req.params.quizId, { status: 'draft' });
 
     res.json({ message: 'Live quiz cancelled' });
@@ -101,7 +101,7 @@ router.get('/:quizId/live/participants', auth, validateObjectIdParam('quizId'), 
       }
     }
 
-    const session = getSessionByQuizId(req.params.quizId);
+    const session = await getSessionByQuizId(req.params.quizId);
     if (!session) {
       res.status(404).json({ message: 'No active live quiz session' });
       return;
@@ -155,7 +155,7 @@ router.get('/:quizId/live/leaderboard', auth, validateObjectIdParam('quizId'), a
       }
     }
     // First try from live session
-    const session = getSessionByQuizId(req.params.quizId);
+    const session = await getSessionByQuizId(req.params.quizId);
     if (session) {
       const scores: { userId: string; displayName: string; totalScore: number; totalTime: number }[] = [];
       for (const p of session.participants) {

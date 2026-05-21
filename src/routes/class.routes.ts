@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import Joi from 'joi';
+import mongoose from 'mongoose';
 import { Class } from '../models/Class.js';
 import { Membership } from '../models/Membership.js';
 import { Topic } from '../models/Topic.js';
@@ -123,40 +124,48 @@ router.patch('/:classId', auth, authorize('teacher'), validate(updateClassSchema
 // DELETE /api/classes/:classId — Fix #20: full cascade delete
 router.delete('/:classId', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const cls = await Class.findOneAndDelete({ _id: req.params.classId, owner: req.user!._id });
+    const cls = await Class.findOne({ _id: req.params.classId, owner: req.user!._id });
     if (!cls) {
       res.status(404).json({ message: 'Class not found or unauthorized' });
       return;
     }
 
-    // Get all topics in the class
-    const topics = await Topic.find({ classId: cls._id });
-    const topicIds = topics.map((t) => t._id);
+    const dbSession = await mongoose.startSession();
+    try {
+      await dbSession.withTransaction(async () => {
+        // Get all topics in the class
+        const topics = await Topic.find({ classId: cls._id }, null, { session: dbSession });
+        const topicIds = topics.map((t) => t._id);
 
-    // Get all quizzes under those topics
-    const { Quiz } = await import('../models/Quiz.js');
-    const { Question } = await import('../models/Question.js');
-    const { Attempt } = await import('../models/Attempt.js');
-    const { Answer } = await import('../models/Answer.js');
-    const { TeacherAssignment } = await import('../models/TeacherAssignment.js');
-    const { Notification } = await import('../models/Notification.js');
+        // Get all quizzes under those topics
+        const { Quiz } = await import('../models/Quiz.js');
+        const { Question } = await import('../models/Question.js');
+        const { Attempt } = await import('../models/Attempt.js');
+        const { Answer } = await import('../models/Answer.js');
+        const { TeacherAssignment } = await import('../models/TeacherAssignment.js');
+        const { Notification } = await import('../models/Notification.js');
 
-    const quizzes = await Quiz.find({ topicId: { $in: topicIds } });
-    const quizIds = quizzes.map((q) => q._id);
+        const quizzes = await Quiz.find({ topicId: { $in: topicIds } }, null, { session: dbSession });
+        const quizIds = quizzes.map((q) => q._id);
 
-    // Get all attempts under those quizzes
-    const attempts = await Attempt.find({ quizId: { $in: quizIds } });
-    const attemptIds = attempts.map((a) => a._id);
+        // Get all attempts under those quizzes
+        const attempts = await Attempt.find({ quizId: { $in: quizIds } }, null, { session: dbSession });
+        const attemptIds = attempts.map((a) => a._id);
 
-    // Cascade delete (bottom-up)
-    await Answer.deleteMany({ attemptId: { $in: attemptIds } });
-    await Attempt.deleteMany({ quizId: { $in: quizIds } });
-    await Question.deleteMany({ quizId: { $in: quizIds } });
-    await Quiz.deleteMany({ topicId: { $in: topicIds } });
-    await TeacherAssignment.deleteMany({ classId: cls._id });
-    await Notification.deleteMany({ classId: cls._id });
-    await Membership.deleteMany({ classId: cls._id });
-    await Topic.deleteMany({ classId: cls._id });
+        // Cascade delete (bottom-up)
+        await Answer.deleteMany({ attemptId: { $in: attemptIds } }, { session: dbSession });
+        await Attempt.deleteMany({ quizId: { $in: quizIds } }, { session: dbSession });
+        await Question.deleteMany({ quizId: { $in: quizIds } }, { session: dbSession });
+        await Quiz.deleteMany({ topicId: { $in: topicIds } }, { session: dbSession });
+        await TeacherAssignment.deleteMany({ classId: cls._id }, { session: dbSession });
+        await Notification.deleteMany({ classId: cls._id }, { session: dbSession });
+        await Membership.deleteMany({ classId: cls._id }, { session: dbSession });
+        await Topic.deleteMany({ classId: cls._id }, { session: dbSession });
+        await Class.deleteOne({ _id: cls._id }, { session: dbSession });
+      });
+    } finally {
+      await dbSession.endSession();
+    }
 
     res.json({ message: 'Class deleted successfully' });
   } catch (error) {

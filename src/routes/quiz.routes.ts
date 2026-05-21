@@ -192,7 +192,7 @@ router.get('/:quizId', auth, validateObjectIdParam('quizId'), async (req: AuthRe
     }
     const quizObj = ctx.quiz.toObject();
     if (quizObj.mode === 'live') {
-      quizObj.isLiveSessionOpen = !!getSessionByQuizId(req.params.quizId);
+      quizObj.isLiveSessionOpen = !!(await getSessionByQuizId(req.params.quizId));
     }
 
     res.json({ quiz: quizObj });
@@ -223,6 +223,16 @@ router.patch('/:quizId', auth, authorize('teacher'), validateObjectIdParam('quiz
     if (!hasAccess) {
       res.status(403).json({ message: 'You do not have access to this quiz' });
       return;
+    }
+
+    // Prevent publishing a quiz with no questions
+    const publishStatuses = ['open', 'scheduled', 'waiting'];
+    if (req.body.status && publishStatuses.includes(req.body.status)) {
+      const questionCount = await Question.countDocuments({ quizId: req.params.quizId });
+      if (questionCount === 0) {
+        res.status(400).json({ message: 'Cannot publish a quiz with no questions. Add at least one question first.' });
+        return;
+      }
     }
 
     // Enforce attemptLimit=1 for live quizzes

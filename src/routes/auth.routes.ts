@@ -220,8 +220,6 @@ router.post('/logout', auth, validate(logoutSchema), async (req: AuthRequest, re
         // ignore
       }
     }
-    // Invalidate all access tokens issued before now
-    await User.findByIdAndUpdate(req.user!._id, { tokenInvalidatedAt: new Date() });
 
     clearRefreshCookie(res);
     res.json({ message: 'Logged out successfully' });

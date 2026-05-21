@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import Joi from 'joi';
+import mongoose from 'mongoose';
 import { Topic } from '../models/Topic.js';
 import { Quiz } from '../models/Quiz.js';
 import { TeacherAssignment } from '../models/TeacherAssignment.js';
@@ -147,31 +148,40 @@ router.delete('/:classId/:topicId', auth, authorize('teacher'), validateObjectId
       return;
     }
 
-    const topic = await Topic.findOneAndDelete({ _id: req.params.topicId, classId: req.params.classId });
+    const topic = await Topic.findOne({ _id: req.params.topicId, classId: req.params.classId });
     if (!topic) {
       res.status(404).json({ message: 'Topic not found' });
       return;
     }
 
-    // Cascade delete quizzes and all sub-resources
-    const quizzes = await Quiz.find({ topicId: topic._id });
-    const quizIds = quizzes.map((q) => q._id);
+    const dbSession = await mongoose.startSession();
+    try {
+      await dbSession.withTransaction(async () => {
+        // Cascade delete quizzes and all sub-resources
+        const quizzes = await Quiz.find({ topicId: topic._id }, null, { session: dbSession });
+        const quizIds = quizzes.map((q) => q._id);
 
-    if (quizIds.length > 0) {
-      const { Attempt } = await import('../models/Attempt.js');
-      const { Answer } = await import('../models/Answer.js');
-      const { Question } = await import('../models/Question.js');
+        if (quizIds.length > 0) {
+          const { Attempt } = await import('../models/Attempt.js');
+          const { Answer } = await import('../models/Answer.js');
+          const { Question } = await import('../models/Question.js');
 
-      const attempts = await Attempt.find({ quizId: { $in: quizIds } });
-      const attemptIds = attempts.map((a) => a._id);
+          const attempts = await Attempt.find({ quizId: { $in: quizIds } }, null, { session: dbSession });
+          const attemptIds = attempts.map((a) => a._id);
 
-      await Answer.deleteMany({ attemptId: { $in: attemptIds } });
-      await Attempt.deleteMany({ quizId: { $in: quizIds } });
-      await Question.deleteMany({ quizId: { $in: quizIds } });
-      await Quiz.deleteMany({ topicId: topic._id });
+          await Answer.deleteMany({ attemptId: { $in: attemptIds } }, { session: dbSession });
+          await Attempt.deleteMany({ quizId: { $in: quizIds } }, { session: dbSession });
+          await Question.deleteMany({ quizId: { $in: quizIds } }, { session: dbSession });
+          await Quiz.deleteMany({ topicId: topic._id }, { session: dbSession });
+        }
+
+        await TeacherAssignment.deleteMany({ topicId: topic._id }, { session: dbSession });
+        await Topic.deleteOne({ _id: topic._id }, { session: dbSession });
+      });
+    } finally {
+      await dbSession.endSession();
     }
 
-    await TeacherAssignment.deleteMany({ topicId: topic._id });
     res.json({ message: 'Topic deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Failed to delete topic' });

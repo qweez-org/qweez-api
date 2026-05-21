@@ -1,17 +1,24 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Quiz } from '../models/Quiz.js';
 import { Membership } from '../models/Membership.js';
-import { getSessions, getSessionByQuizId, getSessionByPin } from './liveQuizStore.js';
+import {
+  getSessionByPin,
+  saveSession,
+  setEndTimer,
+  clearEndTimer,
+} from './liveQuizStore.js';
 import { sanitizeQuestion, buildLeaderboard, gradeAnswer, endQuizSession } from './liveQuizGrading.js';
+
+// Per-socket mapping so we can quickly find sessions on disconnect
+// without scanning all Redis keys.
+const socketPinMap = new Map<string, string>();
 
 export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): void {
   const user = (socket as any).user;
   if (!user) return;
 
-  const sessions = getSessions();
-
-  socket.on('teacher_ready', (data: { pin: string }) => {
-    const session = sessions.get(data.pin);
+  socket.on('teacher_ready', async (data: { pin: string }) => {
+    const session = await getSessionByPin(data.pin);
     if (!session) {
       socket.emit('join_error', { message: 'Session not found' });
       return;
@@ -22,6 +29,8 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     }
 
     session.teacherSocketId = socket.id;
+    await saveSession(data.pin, session);
+    socketPinMap.set(socket.id, data.pin);
     socket.join(`live:${data.pin}`);
     console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[2m${user.name}\x1b[0m teacher_ready session \x1b[1m${data.pin}\x1b[0m`);
 
@@ -47,7 +56,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
   });
 
   socket.on('student_join', async (data: { pin: string; displayName: string }) => {
-    const session = sessions.get(data.pin);
+    const session = await getSessionByPin(data.pin);
     if (!session) {
       socket.emit('join_error', { message: 'PIN tidak valid. Sesi tidak ditemukan.' });
       return;
@@ -82,6 +91,8 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
       });
     }
 
+    await saveSession(data.pin, session);
+    socketPinMap.set(socket.id, data.pin);
     socket.join(`live:${data.pin}`);
     console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[2m${data.displayName || user.name}\x1b[0m ${isReconnect ? 'reconnected to' : 'joined'} session \x1b[1m${data.pin}\x1b[0m  \x1b[2m(${session.participants.length} total)\x1b[0m`);
 
@@ -123,7 +134,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
   });
 
   socket.on('start_quiz', async (data: { pin: string }) => {
-    const session = sessions.get(data.pin);
+    const session = await getSessionByPin(data.pin);
     if (!session) {
       socket.emit('join_error', { message: 'Session not found' });
       return;
@@ -150,6 +161,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     const durationMin = quiz?.duration || 10;
     session.totalDurationSec = durationMin * 60;
 
+    await saveSession(data.pin, session);
     await Quiz.findByIdAndUpdate(session.quizId, { status: 'in_progress' });
 
     const sanitizedQuestions = session.questions.map((q, i) => sanitizeQuestion(q, i));
@@ -165,14 +177,18 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     });
 
     console.log(`\x1b[35m🎮 Live\x1b[0m   Timer set \x1b[2m${session.totalDurationSec}s\x1b[0m for session \x1b[1m${data.pin}\x1b[0m`);
-    session.endTimer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[33m⏰ Timer expired\x1b[0m session \x1b[1m${data.pin}\x1b[0m`);
-      endQuizSession(session, data.pin, io);
+      const latestSession = await getSessionByPin(data.pin);
+      if (latestSession) {
+        await endQuizSession(latestSession, data.pin, io);
+      }
     }, session.totalDurationSec * 1000);
+    setEndTimer(data.pin, timer);
   });
 
-  socket.on('submit_answer', (data: { pin: string; questionIndex: number; answer: string; timeMs: number }) => {
-    const session = sessions.get(data.pin);
+  socket.on('submit_answer', async (data: { pin: string; questionIndex: number; answer: string; timeMs: number }) => {
+    const session = await getSessionByPin(data.pin);
     if (!session || session.status !== 'active') {
       socket.emit('join_error', { message: 'No active session' });
       return;
@@ -195,6 +211,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
       points: result.points,
     };
 
+    await saveSession(data.pin, session);
     socket.emit('answer_received', { questionIndex: data.questionIndex });
 
     const answerCount = Object.keys(session.answers).filter(
@@ -220,8 +237,8 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     }
   });
 
-  socket.on('submit_all_answers', (data: { pin: string; answers: { questionIndex: number; answer: string; timeMs: number }[] }) => {
-    const session = sessions.get(data.pin);
+  socket.on('submit_all_answers', async (data: { pin: string; answers: { questionIndex: number; answer: string; timeMs: number }[] }) => {
+    const session = await getSessionByPin(data.pin);
     if (!session || session.status !== 'active') {
       socket.emit('join_error', { message: 'No active session' });
       return;
@@ -248,6 +265,7 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     const finisherName = session.participants.find((p) => p.userId === userId)?.displayName || userId;
     console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[2m${finisherName}\x1b[0m finished session \x1b[1m${data.pin}\x1b[0m  \x1b[2m(${session.finishCount}/${connectedCount} done)\x1b[0m`);
 
+    await saveSession(data.pin, session);
     socket.emit('answer_received', { finished: true });
 
     if (session.teacherSocketId) {
@@ -270,13 +288,13 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
 
     if (session.finishCount >= connectedCount && connectedCount > 0) {
       console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[32mAll ${connectedCount} students finished\x1b[0m session \x1b[1m${data.pin}\x1b[0m`);
-      if (session.endTimer) { clearTimeout(session.endTimer); session.endTimer = null; }
-      endQuizSession(session, data.pin, io);
+      clearEndTimer(data.pin);
+      await endQuizSession(session, data.pin, io);
     }
   });
 
   socket.on('force_end', async (data: { pin: string }) => {
-    const session = sessions.get(data.pin);
+    const session = await getSessionByPin(data.pin);
     if (!session) {
       socket.emit('join_error', { message: 'Session not found' });
       return;
@@ -294,30 +312,38 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
     await endQuizSession(session, data.pin, io);
   });
 
-  socket.on('disconnect', () => {
-    for (const [pin, session] of sessions) {
-      if (session.teacherSocketId === socket.id) {
-        session.teacherSocketId = null;
-        console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[33mTeacher disconnected\x1b[0m from session \x1b[1m${pin}\x1b[0m`);
-        io.to(`live:${pin}`).emit('teacher_disconnected', {});
-        continue;
-      }
+  socket.on('disconnect', async () => {
+    const pin = socketPinMap.get(socket.id);
+    socketPinMap.delete(socket.id);
+    if (!pin) return;
 
-      const idx = session.participants.findIndex((p) => p.socketId === socket.id);
-      if (idx >= 0) {
-        const participant = session.participants[idx];
-        participant.connected = false;
-        const activeCount = session.participants.filter((p) => p.connected).length;
-        io.to(`live:${pin}`).emit('participant_left', {
-          displayName: participant.displayName,
-          participantCount: activeCount,
-          totalParticipants: session.participants.length,
-        });
+    const session = await getSessionByPin(pin);
+    if (!session) return;
 
-        if (session.status === 'active' && activeCount > 0 && session.finishCount >= activeCount) {
-          if (session.endTimer) { clearTimeout(session.endTimer); session.endTimer = null; }
-          endQuizSession(session, pin, io);
-        }
+    if (session.teacherSocketId === socket.id) {
+      session.teacherSocketId = null;
+      await saveSession(pin, session);
+      console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[33mTeacher disconnected\x1b[0m from session \x1b[1m${pin}\x1b[0m`);
+      io.to(`live:${pin}`).emit('teacher_disconnected', {});
+      return;
+    }
+
+    const idx = session.participants.findIndex((p) => p.socketId === socket.id);
+    if (idx >= 0) {
+      const participant = session.participants[idx];
+      participant.connected = false;
+      const activeCount = session.participants.filter((p) => p.connected).length;
+      await saveSession(pin, session);
+
+      io.to(`live:${pin}`).emit('participant_left', {
+        displayName: participant.displayName,
+        participantCount: activeCount,
+        totalParticipants: session.participants.length,
+      });
+
+      if (session.status === 'active' && activeCount > 0 && session.finishCount >= activeCount) {
+        clearEndTimer(pin);
+        await endQuizSession(session, pin, io);
       }
     }
   });

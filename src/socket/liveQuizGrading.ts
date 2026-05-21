@@ -3,7 +3,7 @@ import { Attempt } from '../models/Attempt.js';
 import { Answer } from '../models/Answer.js';
 import { Quiz } from '../models/Quiz.js';
 import { IQuestion } from '../models/Question.js';
-import { LiveSession, getSessions, getQuizIdToPin } from './liveQuizStore.js';
+import { LiveSession, saveSession, deleteSession, clearEndTimer } from './liveQuizStore.js';
 
 export function sanitizeQuestion(q: IQuestion, index: number) {
   return {
@@ -120,15 +120,11 @@ export async function endQuizSession(session: LiveSession, pin: string, io: Sock
 
   io.to(`live:${pin}`).emit('quiz_ended', { leaderboard });
 
-  if (session.endTimer) {
-    clearTimeout(session.endTimer);
-    session.endTimer = null;
-  }
+  clearEndTimer(pin);
 
-  const sessionsMap = getSessions();
-  const quizIdToPinMap = getQuizIdToPin();
-  setTimeout(() => {
-    sessionsMap.delete(pin);
-    quizIdToPinMap.delete(session.quizId);
+  // Mark session as finished in Redis, then schedule cleanup
+  await saveSession(pin, session);
+  setTimeout(async () => {
+    await deleteSession(pin, session.quizId);
   }, 5 * 60 * 1000);
 }

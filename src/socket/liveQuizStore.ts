@@ -1,8 +1,10 @@
 import crypto from 'crypto';
-import { Server as SocketIOServer } from 'socket.io';
 import { IQuestion } from '../models/Question.js';
 import { Quiz } from '../models/Quiz.js';
 import { Topic } from '../models/Topic.js';
+import { getRedisClient } from '../config/redis.js';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface Participant {
   socketId: string;
@@ -30,71 +32,120 @@ export interface LiveSession {
   questions: IQuestion[];
   currentQuestionIndex: number;
   answers: Record<string, Record<number, StudentAnswer>>;
-  createdAt: Date;
+  createdAt: string; // ISO string (serialisable)
   finishCount: number;
   totalDurationSec: number;
-  endTimer: NodeJS.Timeout | null;
+  // endTimer is NOT stored — managed locally per instance
 }
 
-const sessions = new Map<string, LiveSession>();
-const quizIdToPin = new Map<string, string>();
+// ─── Redis Key Helpers ──────────────────────────────────────────────────────
 
-console.warn('\x1b[33m[liveQuizStore] WARNING: Live quiz state is stored in-memory. This app is currently locked to a single instance and will not scale properly across multiple Node.js nodes.\x1b[0m');
+const SESSION_KEY   = (pin: string) => `live_session:${pin}`;
+const QUIZ_PIN_KEY  = (quizId: string) => `live_quiz_to_pin:${quizId}`;
+const SESSION_TTL   = 4 * 60 * 60; // 4 hours in seconds
 
-const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
-const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+// ─── In-Memory Fallback (no Redis) ──────────────────────────────────────────
 
-function cleanupExpiredSessions(): void {
-  const now = Date.now();
-  for (const [pin, session] of sessions.entries()) {
-    const createdAt = session.createdAt instanceof Date ? session.createdAt.getTime() : new Date(session.createdAt).getTime();
-    if (createdAt + SESSION_TTL_MS <= now) {
-      sessions.delete(pin);
-      quizIdToPin.delete(session.quizId);
-    }
+const memSessions   = new Map<string, LiveSession>();
+const memQuizToPin  = new Map<string, string>();
+
+// ─── Local Timer Map (always in-memory, never in Redis) ─────────────────────
+// Maps pin -> NodeJS.Timeout for the quiz end timer.
+const endTimers = new Map<string, NodeJS.Timeout>();
+
+export function getEndTimer(pin: string): NodeJS.Timeout | undefined {
+  return endTimers.get(pin);
+}
+
+export function setEndTimer(pin: string, timer: NodeJS.Timeout): void {
+  endTimers.set(pin, timer);
+}
+
+export function clearEndTimer(pin: string): void {
+  const timer = endTimers.get(pin);
+  if (timer) {
+    clearTimeout(timer);
+    endTimers.delete(pin);
   }
 }
 
-setInterval(cleanupExpiredSessions, CLEANUP_INTERVAL_MS).unref();
+// ─── Session CRUD ───────────────────────────────────────────────────────────
 
-function generatePin(): string {
+export async function getSessionByPin(pin: string): Promise<LiveSession | undefined> {
+  const redis = getRedisClient();
+  if (!redis) return memSessions.get(pin);
+
+  const raw = await redis.get(SESSION_KEY(pin));
+  if (!raw) return undefined;
+  return JSON.parse(raw) as LiveSession;
+}
+
+export async function getSessionByQuizId(quizId: string): Promise<LiveSession | undefined> {
+  const redis = getRedisClient();
+  if (!redis) {
+    const pin = memQuizToPin.get(quizId);
+    if (!pin) return undefined;
+    return memSessions.get(pin);
+  }
+
+  const pin = await redis.get(QUIZ_PIN_KEY(quizId));
+  if (!pin) return undefined;
+  return getSessionByPin(pin);
+}
+
+export async function saveSession(pin: string, session: LiveSession): Promise<void> {
+  const redis = getRedisClient();
+  if (!redis) {
+    memSessions.set(pin, session);
+    return;
+  }
+
+  await redis.set(SESSION_KEY(pin), JSON.stringify(session), { EX: SESSION_TTL });
+}
+
+export async function deleteSession(pin: string, quizId: string): Promise<void> {
+  const redis = getRedisClient();
+  if (!redis) {
+    memSessions.delete(pin);
+    memQuizToPin.delete(quizId);
+    return;
+  }
+
+  await redis.del(SESSION_KEY(pin));
+  await redis.del(QUIZ_PIN_KEY(quizId));
+}
+
+// ─── PIN Generation ─────────────────────────────────────────────────────────
+
+async function generatePin(): Promise<string> {
+  const redis = getRedisClient();
   let pin: string;
   do {
     pin = crypto.randomInt(100000, 999999).toString();
-  } while (sessions.has(pin));
-  return pin;
+    if (redis) {
+      // Check Redis for collision
+      const exists = await redis.exists(SESSION_KEY(pin));
+      if (!exists) return pin;
+    } else {
+      if (!memSessions.has(pin)) return pin;
+    }
+  } while (true);
 }
 
-export function getSessions(): Map<string, LiveSession> {
-  return sessions;
-}
-
-export function getQuizIdToPin(): Map<string, string> {
-  return quizIdToPin;
-}
-
-export function getSessionByQuizId(quizId: string): LiveSession | undefined {
-  const pin = quizIdToPin.get(quizId);
-  if (!pin) return undefined;
-  return sessions.get(pin);
-}
-
-export function getSessionByPin(pin: string): LiveSession | undefined {
-  return sessions.get(pin);
-}
+// ─── Public API ─────────────────────────────────────────────────────────────
 
 export async function createLiveSession(
   quizId: string,
   teacherUserId: string
 ): Promise<{ pin: string; sessionId: string; questionCount: number }> {
-  const existingPin = quizIdToPin.get(quizId);
-  if (existingPin) {
-    const existing = sessions.get(existingPin);
-    if (existing && existing.status !== 'finished') {
-      return { pin: existingPin, sessionId: existing.sessionId, questionCount: existing.questions.length };
-    }
-    sessions.delete(existingPin);
-    quizIdToPin.delete(quizId);
+  // Check for an existing active session for this quiz
+  const existing = await getSessionByQuizId(quizId);
+  if (existing && existing.status !== 'finished') {
+    return { pin: existing.pin, sessionId: existing.sessionId, questionCount: existing.questions.length };
+  }
+  // Clean up finished session if lingering
+  if (existing) {
+    await deleteSession(existing.pin, quizId);
   }
 
   const quiz = await Quiz.findById(quizId);
@@ -107,7 +158,7 @@ export async function createLiveSession(
   const questions = await Question.find({ quizId }).sort({ order: 1 });
   if (questions.length === 0) throw new Error('Quiz has no questions');
 
-  const pin = generatePin();
+  const pin = await generatePin();
   const sessionId = crypto.randomUUID();
 
   const session: LiveSession = {
@@ -122,14 +173,20 @@ export async function createLiveSession(
     questions,
     currentQuestionIndex: -1,
     answers: {},
-    createdAt: new Date(),
+    createdAt: new Date().toISOString(),
     finishCount: 0,
     totalDurationSec: 0,
-    endTimer: null,
   };
 
-  sessions.set(pin, session);
-  quizIdToPin.set(quizId, pin);
+  await saveSession(pin, session);
+
+  // Set quiz-to-pin mapping
+  const redis = getRedisClient();
+  if (redis) {
+    await redis.set(QUIZ_PIN_KEY(quizId), pin, { EX: SESSION_TTL });
+  } else {
+    memQuizToPin.set(quizId, pin);
+  }
 
   quiz.status = 'waiting';
   quiz.mode = 'live';
@@ -138,13 +195,13 @@ export async function createLiveSession(
   return { pin, sessionId, questionCount: questions.length };
 }
 
-export function cancelLiveSession(quizId: string, io?: SocketIOServer): void {
-  const pin = quizIdToPin.get(quizId);
-  if (!pin) return;
-  const session = sessions.get(pin);
+export async function cancelLiveSession(quizId: string, io?: import('socket.io').Server): Promise<void> {
+  const session = await getSessionByQuizId(quizId);
   if (!session) return;
-  console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[33mSession cancelled\x1b[0m \x1b[1m${pin}\x1b[0m`);
-  io?.to(`live:${pin}`).emit('session_cancelled', { reason: 'Teacher cancelled the session' });
-  sessions.delete(pin);
-  quizIdToPin.delete(quizId);
+
+  console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[33mSession cancelled\x1b[0m \x1b[1m${session.pin}\x1b[0m`);
+  io?.to(`live:${session.pin}`).emit('session_cancelled', { reason: 'Teacher cancelled the session' });
+
+  clearEndTimer(session.pin);
+  await deleteSession(session.pin, quizId);
 }

@@ -1,7 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -10,6 +9,7 @@ import os from 'os';
 
 import { env } from './config/env.js';
 import { connectDB } from './config/db.js';
+import { connectRedis, getRedisClient } from './config/redis.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { setupSocketIO } from './socket/index.js';
@@ -159,14 +159,13 @@ export { app, httpServer, io };
 const start = async (): Promise<void> => {
   await connectDB();
 
-  if (env.REDIS_URL) {
-    const pubClient = createClient({ url: env.REDIS_URL });
-    const subClient = pubClient.duplicate();
+  // Connect Redis (shared client for live quiz store + Socket.IO adapter)
+  const redisClient = await connectRedis();
 
-    await pubClient.connect();
+  if (redisClient) {
+    const subClient = redisClient.duplicate();
     await subClient.connect();
-
-    io.adapter(createAdapter(pubClient, subClient));
+    io.adapter(createAdapter(redisClient, subClient));
   }
 
   httpServer.listen(env.PORT, '0.0.0.0', () => {
