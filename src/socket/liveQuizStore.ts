@@ -39,6 +39,8 @@ export interface LiveSession {
 const sessions = new Map<string, LiveSession>();
 const quizIdToPin = new Map<string, string>();
 
+console.warn('\x1b[33m[liveQuizStore] WARNING: Live quiz state is stored in-memory. This app is currently locked to a single instance and will not scale properly across multiple Node.js nodes.\x1b[0m');
+
 const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 

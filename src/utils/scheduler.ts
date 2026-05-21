@@ -97,6 +97,27 @@ export const startScheduler = (io?: SocketIOServer): void => {
         );
         console.log(`⏰ Scheduler: Closed ${expiredQuizzes.length} expired quiz(es), auto-submitted ${inProgressAttempts.length} attempt(s)`);
       }
+
+      // Sweep for in_progress attempts that exceeded their duration (useful for manual/live quizzes)
+      const allInProgressAttempts = await Attempt.find({ status: 'in_progress' });
+      for (const attempt of allInProgressAttempts) {
+        try {
+          const quiz = await Quiz.findById(attempt.quizId);
+          if (quiz && quiz.duration > 0) {
+            const elapsedMs = now.getTime() - attempt.startedAt.getTime();
+            const maxDurationMs = quiz.duration * 60 * 1000 + 120000; // 2 min grace period
+            if (elapsedMs > maxDurationMs) {
+              attempt.status = 'submitted';
+              attempt.submittedAt = now;
+              await attempt.save();
+              await scoreAttempt(attempt._id.toString());
+              console.log(`⏰ Scheduler: Auto-submitted attempt ${attempt._id} due to time limit`);
+            }
+          }
+        } catch (err) {
+          console.error(`⏰ Scheduler: Failed to time-check attempt ${attempt._id}:`, err);
+        }
+      }
     } catch (error) {
       console.error('⏰ Scheduler error:', error);
     }

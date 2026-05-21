@@ -7,10 +7,13 @@
 // This file re-exports the public API for backward compatibility.
 // New code should import from the sub-modules directly.
 
-export {
+export type {
   Participant,
   StudentAnswer,
   LiveSession,
+} from './liveQuizStore.js';
+
+export {
   getSessions,
   getQuizIdToPin,
   getSessionByQuizId,

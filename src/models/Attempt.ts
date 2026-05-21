@@ -27,5 +27,6 @@ const attemptSchema = new Schema<IAttempt>(
 );
 
 attemptSchema.index({ userId: 1, quizId: 1 });
+attemptSchema.index({ quizId: 1 });
 
 export const Attempt = mongoose.model<IAttempt>('Attempt', attemptSchema);

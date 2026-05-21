@@ -39,5 +39,6 @@ const questionSchema = new Schema<IQuestion>(
 );
 
 questionSchema.index({ quizId: 1, order: 1 });
+questionSchema.index({ quizId: 1 });
 
 export const Question = mongoose.model<IQuestion>('Question', questionSchema);
