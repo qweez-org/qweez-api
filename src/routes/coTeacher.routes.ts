@@ -3,6 +3,7 @@ import Joi from 'joi';
 import { User } from '../models/User.js';
 import { Class } from '../models/Class.js';
 import { Membership } from '../models/Membership.js';
+import { Notification } from '../models/Notification.js';
 import { auth, AuthRequest } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
@@ -50,7 +51,15 @@ router.post('/:classId/co-teachers', auth, authorize('teacher'), validate(invite
       userId: teacher._id,
       classId: cls._id,
       role: 'co-teacher',
-      status: 'approved',
+      status: 'pending',
+    });
+
+    await Notification.create({
+      userId: teacher._id,
+      type: 'join_request',
+      title: 'Undangan Co-Teacher',
+      message: `${req.user!.name} mengundang Anda sebagai co-teacher di kelas "${cls.name}".`,
+      classId: cls._id,
     });
 
     res.status(201).json({ membership, teacher: { _id: teacher._id, name: teacher.name, email: teacher.email } });
