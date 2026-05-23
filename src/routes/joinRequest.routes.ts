@@ -117,15 +117,11 @@ router.post('/:classId/approve/:requestId', auth, authorize('teacher'), validate
     }
 
     // Notify the user
-    const roleLabel = membership.role === 'co-teacher'
-      ? 'co-teacher'
-      : 'anggota';
-
     await Notification.create({
       userId: membership.userId,
       type: 'join_approved',
       title: 'Permintaan bergabung disetujui',
-      message: `Anda telah diterima sebagai ${roleLabel} di kelas.`,
+      message: `Anda telah bergabung ke kelas`,
       classId: membership.classId,
     });
 

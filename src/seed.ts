@@ -12,6 +12,7 @@ import { Notification } from './models/Notification.js';
 import { RefreshToken } from './models/RefreshToken.js';
 import { env } from './config/env.js';
 import { generateClassCode } from './utils/generateCode.js';
+import { specificQuestions, genericQuestions } from './seed-questions.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -282,48 +283,51 @@ async function seed() {
   //  QUESTIONS — 3-5 per quiz, always created (including drafts)
   // ═══════════════════════════════════════════════════════════════════════════
   console.log('❓ Creating questions...');
-  const mcTemplates = [
-    { t: 'Manakah pernyataan berikut yang benar tentang {topic}?',
-      opts: ['Pernyataan A (benar)', 'Pernyataan B', 'Pernyataan C', 'Pernyataan D'] },
-    { t: 'Apa yang dimaksud dengan konsep utama dalam {topic}?',
-      opts: ['Definisi yang tepat', 'Jawaban kurang tepat 1', 'Jawaban kurang tepat 2', 'Jawaban kurang tepat 3'] },
-    { t: 'Contoh penerapan {topic} dalam kehidupan sehari-hari adalah...',
-      opts: ['Contoh tepat', 'Contoh kurang tepat 1', 'Contoh kurang tepat 2', 'Contoh kurang tepat 3'] },
-    { t: 'Berikut yang BUKAN merupakan bagian dari {topic} adalah...',
-      opts: ['Bukan bagian (benar)', 'Bagian 1', 'Bagian 2', 'Bagian 3'] },
-    { t: 'Prinsip dasar dari {topic} dapat dirumuskan sebagai...',
-      opts: ['Rumusan benar', 'Rumusan salah 1', 'Rumusan salah 2', 'Rumusan salah 3'] },
-    { t: 'Hasil perhitungan yang berkaitan dengan {topic} adalah...',
-      opts: ['Jawaban benar', 'Jawaban salah 1', 'Jawaban salah 2', 'Jawaban salah 3'] },
-  ];
-  const shortAnswerTemplates = [
-    { t: 'Tuliskan secara singkat konsep utama dari {topic}.', ans: ['konsep penting', 'jawaban pendek'] },
-    { t: 'Berikan satu contoh penerapan {topic}.', ans: ['contoh A', 'contoh B', 'contoh nyata'] },
-    { t: 'Apa nama istilah lain dari {topic}?', ans: ['istilah sinonim', 'nama lain'] },
-  ];
-
   const questionDocs: any[] = [];
   for (let qi = 0; qi < quizzes.length; qi++) {
     const topicName = topics[quizTopicIndex[qi]].name;
     const qCount = randBetween(3, 5);
-    for (let qo = 0; qo < qCount; qo++) {
-      if (qo === qCount - 1 && Math.random() > 0.5) {
-        const tmpl = pick(shortAnswerTemplates);
-        questionDocs.push({
-          quizId: quizzes[qi]._id, type: 'short_answer',
-          text: tmpl.t.replace('{topic}', topicName),
-          points: pick([15, 20, 25]), order: qo,
-          caseSensitive: Math.random() > 0.8,
-          spaceSensitive: Math.random() > 0.8,
-          options: tmpl.ans.map((a: string) => ({ text: a, isCorrect: true })),
-        });
-      } else {
-        const tmpl = pick(mcTemplates);
+    
+    // Pick questions from specific list or generic list
+    const specificList = specificQuestions[topicName] || [];
+    let pool = [...specificList];
+    if (pool.length < qCount) {
+       pool = [...pool, ...genericQuestions];
+    }
+    // Shuffle pool
+    pool.sort(() => Math.random() - 0.5);
+    const selectedQs = pool.slice(0, qCount);
+
+    for (let qo = 0; qo < selectedQs.length; qo++) {
+      const qTemplate = selectedQs[qo];
+      
+      const text = qTemplate.t.replace(/{topic}/g, topicName);
+      
+      if (qTemplate.type === 'multiple_choice') {
         questionDocs.push({
           quizId: quizzes[qi]._id, type: 'multiple_choice',
-          text: tmpl.t.replace('{topic}', topicName),
+          text: text,
           points: 10, order: qo,
-          options: tmpl.opts.map((text, i) => ({ text, isCorrect: i === 0 })),
+          options: qTemplate.opts!.map((opt, i) => ({ text: opt, isCorrect: i === 0 })),
+        });
+      } else if (qTemplate.type === 'true_false') {
+        questionDocs.push({
+          quizId: quizzes[qi]._id, type: 'true_false',
+          text: text,
+          points: 10, order: qo,
+          options: [
+            { text: 'Benar', isCorrect: qTemplate.isTrue },
+            { text: 'Salah', isCorrect: !qTemplate.isTrue }
+          ]
+        });
+      } else if (qTemplate.type === 'short_answer') {
+        questionDocs.push({
+          quizId: quizzes[qi]._id, type: 'short_answer',
+          text: text,
+          points: pick([15, 20, 25]), order: qo,
+          caseSensitive: false,
+          spaceSensitive: false,
+          options: qTemplate.ans!.map((a: string) => ({ text: a, isCorrect: true })),
         });
       }
     }
@@ -372,6 +376,14 @@ async function seed() {
           const chosen = correct
             ? (correctOpt?.text || q.options[0]?.text || '')
             : (pick(wrongOpts)?.text || '');
+          const pts = correct ? q.points : 0;
+          earnedPts += pts;
+          tempAnswers.push({ questionId: q._id, answer: chosen, isCorrect: correct, points: pts });
+        } else if (q.type === 'true_false') {
+          const correct = Math.random() > 0.3;
+          const correctOpt = q.options.find((o: any) => o.isCorrect);
+          const wrongOpt = q.options.find((o: any) => !o.isCorrect);
+          const chosen = correct ? correctOpt?.text : wrongOpt?.text;
           const pts = correct ? q.points : 0;
           earnedPts += pts;
           tempAnswers.push({ questionId: q._id, answer: chosen, isCorrect: correct, points: pts });

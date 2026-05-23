@@ -56,7 +56,7 @@ router.post('/:classId/co-teachers', auth, authorize('teacher'), validate(invite
 
     await Notification.create({
       userId: teacher._id,
-      type: 'join_request',
+      type: 'co_teacher_invite',
       title: 'Undangan Co-Teacher',
       message: `${req.user!.name} mengundang Anda sebagai co-teacher di kelas "${cls.name}".`,
       classId: cls._id,
@@ -65,6 +65,84 @@ router.post('/:classId/co-teachers', auth, authorize('teacher'), validate(invite
     res.status(201).json({ membership, teacher: { _id: teacher._id, name: teacher.name, email: teacher.email } });
   } catch (error) {
     res.status(500).json({ message: 'Failed to invite co-teacher' });
+  }
+});
+
+// POST /api/classes/:classId/co-teachers/accept — Accept co-teacher invitation
+router.post('/:classId/co-teachers/accept', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const cls = await Class.findById(req.params.classId);
+    if (!cls) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
+    const membership = await Membership.findOneAndUpdate(
+      { userId: req.user!._id, classId: cls._id, role: 'co-teacher', status: 'pending' },
+      { status: 'approved' },
+      { new: true }
+    );
+
+    if (!membership) {
+      res.status(404).json({ message: 'Pending invitation not found' });
+      return;
+    }
+
+    await Notification.create({
+      userId: cls.owner,
+      type: 'co_teacher_accepted',
+      title: 'Undangan Diterima',
+      message: `${req.user!.name} telah menerima undangan co-teacher di kelas "${cls.name}".`,
+      classId: cls._id,
+    });
+
+    // Mark notification as read for the user who accepted
+    await Notification.updateMany(
+      { userId: req.user!._id, type: 'co_teacher_invite', classId: cls._id },
+      { isRead: true }
+    );
+
+    res.json({ message: 'Invitation accepted', membership });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to accept invitation' });
+  }
+});
+
+// POST /api/classes/:classId/co-teachers/reject — Reject co-teacher invitation
+router.post('/:classId/co-teachers/reject', auth, authorize('teacher'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const cls = await Class.findById(req.params.classId);
+    if (!cls) {
+      res.status(404).json({ message: 'Class not found' });
+      return;
+    }
+
+    const membership = await Membership.findOneAndDelete({
+      userId: req.user!._id, classId: cls._id, role: 'co-teacher', status: 'pending'
+    });
+
+    if (!membership) {
+      res.status(404).json({ message: 'Pending invitation not found' });
+      return;
+    }
+
+    await Notification.create({
+      userId: cls.owner,
+      type: 'co_teacher_rejected',
+      title: 'Undangan Ditolak',
+      message: `${req.user!.name} menolak undangan co-teacher di kelas "${cls.name}".`,
+      classId: cls._id,
+    });
+
+    // Mark notification as read for the user who rejected
+    await Notification.updateMany(
+      { userId: req.user!._id, type: 'co_teacher_invite', classId: cls._id },
+      { isRead: true }
+    );
+
+    res.json({ message: 'Invitation rejected' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to reject invitation' });
   }
 });
 

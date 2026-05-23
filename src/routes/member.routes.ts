@@ -18,7 +18,10 @@ router.get('/:classId', auth, validateObjectIdParam('classId'), async (req: Auth
 
     const members = await Membership.find({
       classId: req.params.classId,
-      status: 'approved',
+      $or: [
+        { status: 'approved' },
+        { status: 'pending', role: 'co-teacher' }
+      ]
     }).populate('userId', 'name email avatar role');
 
     res.json({ members });
