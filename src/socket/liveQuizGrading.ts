@@ -45,7 +45,7 @@ export function gradeAnswer(question: IQuestion, answerText: string): { correct:
   let correct = false;
   let points = 0;
 
-  if (question.type === 'multiple_choice') {
+  if (question.type === 'multiple_choice' || question.type === 'true_false') {
     const correctOptions = (question.options || []).filter((o) => o.isCorrect);
     correct = correctOptions.some((o) => o.text === answerText);
     if (correct) points = question.points;

@@ -323,7 +323,7 @@ router.get('/:quizId/questions', auth, validateObjectIdParam('quizId'), async (r
 // POST /api/quizzes/:quizId/questions — Fix #14: add validation
 const createQuestionSchema = Joi.object({
   text: Joi.string().required().min(1).max(2000),
-  type: Joi.string().valid('multiple_choice', 'short_answer').required(),
+  type: Joi.string().valid('multiple_choice', 'short_answer', 'true_false').required(),
   points: Joi.number().integer().min(1).max(1000).default(10),
   caseSensitive: Joi.boolean().default(false),
   spaceSensitive: Joi.boolean().default(false),
@@ -375,7 +375,7 @@ router.post('/:quizId/questions', auth, authorize('teacher'), validateObjectIdPa
 // PATCH /api/quizzes/:quizId/questions/:questionId
 const updateQuestionSchema = Joi.object({
   text: Joi.string().min(1).max(2000),
-  type: Joi.string().valid('multiple_choice', 'short_answer'),
+  type: Joi.string().valid('multiple_choice', 'short_answer', 'true_false'),
   points: Joi.number().integer().min(1).max(1000),
   caseSensitive: Joi.boolean(),
   spaceSensitive: Joi.boolean(),

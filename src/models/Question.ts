@@ -8,7 +8,7 @@ export interface IQuestionOption {
 export interface IQuestion extends Document {
   _id: mongoose.Types.ObjectId;
   quizId: mongoose.Types.ObjectId;
-  type: 'multiple_choice' | 'short_answer';
+  type: 'multiple_choice' | 'short_answer' | 'true_false';
   text: string;
   options: IQuestionOption[];
   caseSensitive?: boolean;
@@ -22,7 +22,7 @@ export interface IQuestion extends Document {
 const questionSchema = new Schema<IQuestion>(
   {
     quizId: { type: Schema.Types.ObjectId, ref: 'Quiz', required: true },
-    type: { type: String, required: true, enum: ['multiple_choice', 'short_answer'], default: 'multiple_choice' },
+    type: { type: String, required: true, enum: ['multiple_choice', 'short_answer', 'true_false'], default: 'multiple_choice' },
     text: { type: String, required: true },
     options: [
       {

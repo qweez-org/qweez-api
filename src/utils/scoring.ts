@@ -18,7 +18,7 @@ export const scoreAttempt = async (attemptId: string): Promise<{ score: number; 
     const answer = answers.find((a) => a.questionId.toString() === question._id.toString());
     if (!answer) continue;
 
-    if (question.type === 'multiple_choice') {
+    if (question.type === 'multiple_choice' || question.type === 'true_false') {
       const correctOptions = question.options.filter((o) => o.isCorrect);
       const isCorrect = correctOptions.some((o) => o.text === answer.answer);
       if (isCorrect) {
