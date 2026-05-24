@@ -68,18 +68,7 @@ router.post('/quizzes/:quizId/start', auth, async (req: AuthRequest, res: Respon
       }
     }
 
-    // Check attempt limit
-    const attemptCount = await Attempt.countDocuments({
-      userId: req.user!._id,
-      quizId: quiz._id,
-    });
-
-    if (attemptCount >= quiz.attemptLimit) {
-      res.status(400).json({ message: 'Attempt limit reached' });
-      return;
-    }
-
-    // Check for in-progress attempt
+    // Check for in-progress attempt FIRST
     const inProgress = await Attempt.findOne({
       userId: req.user!._id,
       quizId: quiz._id,
@@ -88,6 +77,17 @@ router.post('/quizzes/:quizId/start', auth, async (req: AuthRequest, res: Respon
 
     if (inProgress) {
       res.json({ attempt: inProgress, message: 'Resuming existing attempt' });
+      return;
+    }
+
+    // Check attempt limit for NEW attempts
+    const attemptCount = await Attempt.countDocuments({
+      userId: req.user!._id,
+      quizId: quiz._id,
+    });
+
+    if (attemptCount >= quiz.attemptLimit) {
+      res.status(400).json({ message: 'Attempt limit reached' });
       return;
     }
 
