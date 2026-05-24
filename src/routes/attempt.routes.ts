@@ -359,7 +359,7 @@ router.get('/:attemptId/review', auth, async (req: AuthRequest, res: Response): 
         isCorrect: studentAnswer?.isCorrect ?? false,
         earnedPoints: studentAnswer?.points ?? 0,
         correctAnswers: correctOptions,
-        options: q.type === 'multiple_choice'
+        options: (q.type === 'multiple_choice' || q.type === 'true_false')
           ? q.options.map((o) => ({ text: o.text, isCorrect: o.isCorrect }))
           : undefined,
       };
