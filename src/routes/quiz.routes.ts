@@ -74,7 +74,12 @@ router.get('/topics/:topicId', auth, validateObjectIdParam('topicId'), async (re
       }
     }
 
-    const quizzes = await Quiz.find({ topicId: req.params.topicId }).sort({ createdAt: -1 });
+    let quizzes = await Quiz.find({ topicId: req.params.topicId }).sort({ createdAt: -1 });
+    
+    // Bug fix: Hide draft quizzes from students
+    if (req.user!.role === 'student') {
+      quizzes = quizzes.filter(q => q.status !== 'draft');
+    }
 
     // Attach questionCount for each quiz
     const quizIds = quizzes.map((q) => q._id);
@@ -191,6 +196,11 @@ router.get('/:quizId', auth, validateObjectIdParam('quizId'), async (req: AuthRe
       }
     }
     const quizObj = ctx.quiz.toObject();
+    
+    if (req.user!.role === 'student' && quizObj.status === 'draft') {
+      res.status(403).json({ message: 'Access denied' });
+      return;
+    }
     if (quizObj.mode === 'live') {
       quizObj.isLiveSessionOpen = !!(await getSessionByQuizId(req.params.quizId));
     }
@@ -294,6 +304,9 @@ router.get('/:quizId/questions', auth, validateObjectIdParam('quizId'), async (r
         res.status(403).json({ message: 'You do not have access to this quiz' });
         return;
       }
+    } else if (req.user!.role === 'student' && ctx.quiz.status === 'draft') {
+      res.status(403).json({ message: 'Access denied' });
+      return;
     }
 
     const questions = await Question.find({ quizId: req.params.quizId }).sort({ order: 1, createdAt: 1 });

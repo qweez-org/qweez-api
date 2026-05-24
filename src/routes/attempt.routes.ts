@@ -22,9 +22,26 @@ router.post('/quizzes/:quizId/start', auth, async (req: AuthRequest, res: Respon
       return;
     }
 
-    if (quiz.status !== 'open' && quiz.status !== 'in_progress') {
+    if (quiz.status === 'draft' || quiz.status === 'closed' || quiz.status === 'finished') {
       res.status(400).json({ message: 'Quiz is not currently open' });
       return;
+    }
+
+    if (quiz.mode === 'scheduled') {
+      const now = new Date();
+      if (quiz.scheduledOpen && now < quiz.scheduledOpen) {
+        res.status(400).json({ message: 'Quiz has not opened yet' });
+        return;
+      }
+      if (quiz.scheduledClose && now > quiz.scheduledClose) {
+        res.status(400).json({ message: 'Quiz is closed' });
+        return;
+      }
+    } else {
+      if (quiz.status !== 'open' && quiz.status !== 'in_progress') {
+        res.status(400).json({ message: 'Quiz is not currently open' });
+        return;
+      }
     }
 
     // Bug #3 fix: Verify class membership before allowing quiz start
@@ -142,7 +159,16 @@ router.put('/:attemptId/answers', auth, validate(saveAnswersSchema), async (req:
     const quiz = await Quiz.findById(attempt.quizId);
     if (quiz) {
       const elapsed = (Date.now() - attempt.startedAt.getTime()) / 1000 / 60;
-      if (elapsed > quiz.duration + 1) { // 1 minute grace
+      let expired = elapsed > quiz.duration + 1;
+      
+      // Bug fix: Enforce scheduledClose for scheduled quizzes
+      if (quiz.mode === 'scheduled' && quiz.scheduledClose) {
+        if (new Date() > new Date(quiz.scheduledClose.getTime() + 60000)) { // 1 min grace
+          expired = true;
+        }
+      }
+
+      if (expired) {
         // Auto-submit
         attempt.status = 'submitted';
         attempt.submittedAt = new Date();
@@ -191,6 +217,21 @@ router.post('/:attemptId/submit', auth, async (req: AuthRequest, res: Response):
       return;
     }
 
+    const quiz = await Quiz.findById(attempt.quizId);
+    if (quiz) {
+      const elapsed = (Date.now() - attempt.startedAt.getTime()) / 1000 / 60;
+      let expired = elapsed > quiz.duration + 1;
+      
+      if (quiz.mode === 'scheduled' && quiz.scheduledClose) {
+        if (new Date() > new Date(quiz.scheduledClose.getTime() + 60000)) {
+          expired = true;
+        }
+      }
+      
+      // We don't block submit on expired, we just mark it submitted.
+      // But if it was expired, we shouldn't necessarily reject it here, just submit it normally.
+    }
+
     attempt.status = 'submitted';
     attempt.submittedAt = new Date();
     await attempt.save();
@@ -209,7 +250,6 @@ router.post('/:attemptId/submit', auth, async (req: AuthRequest, res: Response):
     }
 
     // Compute whether student can view answer key after this submission
-    const quiz = await Quiz.findById(attempt.quizId);
     let canViewAnswerKey = false;
     if (quiz?.showAnswerKey) {
       const attemptCount = await Attempt.countDocuments({ userId: req.user!._id, quizId: quiz._id });

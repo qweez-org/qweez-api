@@ -25,8 +25,26 @@ router.post('/', auth, validate(joinRequestSchema), async (req: AuthRequest, res
     }
 
     // Check if already a member
-    const existing = await Membership.findOne({ userId: req.user!._id, classId: cls._id });
+    let existing = await Membership.findOne({ userId: req.user!._id, classId: cls._id });
     if (existing) {
+      if (existing.status === 'rejected') {
+        existing.status = 'pending';
+        existing.createdAt = new Date();
+        await existing.save();
+        
+        // Notify class owner
+        await Notification.create({
+          userId: cls.owner,
+          type: 'join_request',
+          title: 'Permintaan bergabung baru',
+          message: `${req.user!.name} ingin bergabung ke kelas ${cls.name}`,
+          classId: cls._id,
+        });
+
+        res.status(201).json({ membership: existing, class: { _id: cls._id, name: cls.name } });
+        return;
+      }
+
       res.status(409).json({ message: 'Already requested or joined this class', status: existing.status });
       return;
     }
