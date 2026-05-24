@@ -101,7 +101,7 @@ router.get('/:classId/:topicId', auth, validateObjectIdParam('classId'), validat
 // PATCH /api/classes/:classId/topics/:topicId
 const updateTopicSchema = Joi.object({
   name: Joi.string().min(2).max(200),
-  teacherId: Joi.string(), // Assign a teacher to this topic
+  teacherId: Joi.string().hex().length(24), // Assign a teacher to this topic
 });
 
 router.patch('/:classId/:topicId', auth, authorize('teacher'), validateObjectIdParam('classId'), validateObjectIdParam('topicId'), validate(updateTopicSchema), async (req: AuthRequest, res: Response): Promise<void> => {

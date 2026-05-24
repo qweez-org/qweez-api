@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import bcryptjs from 'bcryptjs';
 import crypto from 'crypto';
@@ -158,8 +158,9 @@ router.post('/refresh', validate(refreshSchema), async (req: AuthRequest, res: R
     }
 
     if (tokenDoc.revokedAt) {
+      await RefreshToken.updateMany({ userId: decoded.userId }, { $set: { revokedAt: new Date() } });
       clearRefreshCookie(res);
-      res.status(401).json({ message: 'Refresh token revoked' });
+      res.status(401).json({ message: 'Refresh token revoked (session terminated)' });
       return;
     }
 
@@ -202,7 +203,7 @@ const logoutSchema = Joi.object({
   refreshToken: Joi.string().optional(),
 });
 
-router.post('/logout', auth, validate(logoutSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/logout', auth, validate(logoutSchema), async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const cookieToken = getCookieValue(req.headers.cookie, env.REFRESH_TOKEN_COOKIE_NAME);
     const provided = (req.body?.refreshToken as string | undefined) || cookieToken;
@@ -216,15 +217,19 @@ router.post('/logout', auth, validate(logoutSchema), async (req: AuthRequest, re
             { $set: { revokedAt: new Date() } }
           );
         }
-      } catch (_) {
-        // ignore
+      } catch (err) {
+        // ignore verify error
       }
+    }
+
+    if (req.user) {
+      await User.findByIdAndUpdate(req.user._id, { tokenInvalidatedAt: new Date() });
     }
 
     clearRefreshCookie(res);
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
-    res.status(500).json({ message: 'Logout failed' });
+    next(error);
   }
 });
 
@@ -257,10 +262,12 @@ router.post('/forgot-password', validate(forgotPasswordSchema), async (req: Auth
     const resetUrl = `${env.NODE_ENV === 'development' ? 'http://localhost:5173' : env.CORS_ORIGIN.split(',')[0]}/reset-password?token=${rawToken}&userId=${user._id}`;
 
     // ── DEV-ONLY: log token to console instead of sending email ──────────
-    console.log(`\n🔐 Password Reset Token (dev-only console log):`);
-    console.log(`   User: ${user.email}`);
-    console.log(`   URL:  ${resetUrl}`);
-    console.log(`   Expires in 1 hour\n`);
+    if (env.NODE_ENV === 'development') {
+      console.log(`\n🔐 Password Reset Token (dev-only console log):`);
+      console.log(`   User: ${user.email}`);
+      console.log(`   URL:  ${resetUrl}`);
+      console.log(`   Expires in 1 hour\n`);
+    }
 
     res.json({ message: 'If an account exists, a reset link has been sent.' });
   } catch (error) {

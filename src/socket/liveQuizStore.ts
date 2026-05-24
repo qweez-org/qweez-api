@@ -103,6 +103,47 @@ export async function saveSession(pin: string, session: LiveSession): Promise<vo
   await redis.set(SESSION_KEY(pin), JSON.stringify(session), { EX: SESSION_TTL });
 }
 
+export async function updateSessionWithLock(pin: string, updater: (session: LiveSession) => boolean | void): Promise<LiveSession | null> {
+  const redis = getRedisClient();
+  if (!redis) {
+    const session = memSessions.get(pin);
+    if (!session) return null;
+    if (updater(session) !== false) {
+      memSessions.set(pin, session);
+    }
+    return session;
+  }
+
+  const client = redis.duplicate();
+  await client.connect();
+  try {
+    const key = SESSION_KEY(pin);
+    // Retry loop for optimistic locking
+    for (let i = 0; i < 10; i++) {
+      await client.watch(key);
+      const raw = await client.get(key);
+      if (!raw) {
+        await client.unwatch();
+        return null;
+      }
+      const session = JSON.parse(raw) as LiveSession;
+      if (updater(session) === false) {
+        await client.unwatch();
+        return session;
+      }
+      const multi = client.multi();
+      multi.set(key, JSON.stringify(session), { EX: SESSION_TTL });
+      const replies = await multi.exec();
+      if (replies) {
+        return session;
+      }
+    }
+    return null;
+  } finally {
+    await client.disconnect();
+  }
+}
+
 export async function deleteSession(pin: string, quizId: string): Promise<void> {
   const redis = getRedisClient();
   if (!redis) {

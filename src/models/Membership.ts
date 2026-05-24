@@ -21,5 +21,6 @@ const membershipSchema = new Schema<IMembership>(
 );
 
 membershipSchema.index({ userId: 1, classId: 1 }, { unique: true });
+membershipSchema.index({ classId: 1, role: 1, status: 1 });
 
 export const Membership = mongoose.model<IMembership>('Membership', membershipSchema);

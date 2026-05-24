@@ -4,6 +4,7 @@ import { Membership } from '../models/Membership.js';
 import {
   getSessionByPin,
   saveSession,
+  updateSessionWithLock,
   setEndTimer,
   clearEndTimer,
 } from './liveQuizStore.js';
@@ -188,30 +189,30 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
   });
 
   socket.on('submit_answer', async (data: { pin: string; questionIndex: number; answer: string; timeMs: number }) => {
-    const session = await getSessionByPin(data.pin);
-    if (!session || session.status !== 'active') {
-      socket.emit('join_error', { message: 'No active session' });
-      return;
-    }
-
     const userId = user._id.toString();
-    if (data.questionIndex < 0 || data.questionIndex >= session.questions.length) return;
+    const session = await updateSessionWithLock(data.pin, (sess) => {
+      if (sess.status !== 'active') return false;
+      if (!sess.participants.some((p) => p.userId === userId)) return false;
+      if (data.questionIndex < 0 || data.questionIndex >= sess.questions.length) return false;
 
-    if (!session.answers[userId]) session.answers[userId] = {};
-    if (session.answers[userId][data.questionIndex]) {
-      socket.emit('answer_received', { questionIndex: data.questionIndex });
+      if (!sess.answers[userId]) sess.answers[userId] = {};
+      if (sess.answers[userId][data.questionIndex]) return false;
+
+      const result = gradeAnswer(sess.questions[data.questionIndex], data.answer);
+      sess.answers[userId][data.questionIndex] = {
+        answer: data.answer,
+        timeMs: data.timeMs || 0,
+        correct: result.correct,
+        points: result.points,
+      };
+      return true;
+    });
+
+    if (!session) {
+      // If session is null, either it wasn't found, not active, user wasn't a participant, or retries failed
       return;
     }
 
-    const result = gradeAnswer(session.questions[data.questionIndex], data.answer);
-    session.answers[userId][data.questionIndex] = {
-      answer: data.answer,
-      timeMs: data.timeMs || 0,
-      correct: result.correct,
-      points: result.points,
-    };
-
-    await saveSession(data.pin, session);
     socket.emit('answer_received', { questionIndex: data.questionIndex });
 
     const answerCount = Object.keys(session.answers).filter(
@@ -238,34 +239,36 @@ export function registerLiveQuizHandlers(io: SocketIOServer, socket: Socket): vo
   });
 
   socket.on('submit_all_answers', async (data: { pin: string; answers: { questionIndex: number; answer: string; timeMs: number }[] }) => {
-    const session = await getSessionByPin(data.pin);
-    if (!session || session.status !== 'active') {
-      socket.emit('join_error', { message: 'No active session' });
-      return;
-    }
-
     const userId = user._id.toString();
-    if (!session.answers[userId]) session.answers[userId] = {};
+    const session = await updateSessionWithLock(data.pin, (sess) => {
+      if (sess.status !== 'active') return false;
+      if (!sess.participants.some((p) => p.userId === userId)) return false;
 
-    for (const ans of data.answers) {
-      if (ans.questionIndex < 0 || ans.questionIndex >= session.questions.length) continue;
-      if (session.answers[userId][ans.questionIndex]) continue;
+      if (!sess.answers[userId]) sess.answers[userId] = {};
 
-      const result = gradeAnswer(session.questions[ans.questionIndex], ans.answer);
-      session.answers[userId][ans.questionIndex] = {
-        answer: ans.answer,
-        timeMs: ans.timeMs || 0,
-        correct: result.correct,
-        points: result.points,
-      };
-    }
+      for (const ans of data.answers) {
+        if (ans.questionIndex < 0 || ans.questionIndex >= sess.questions.length) continue;
+        if (sess.answers[userId][ans.questionIndex]) continue;
 
-    session.finishCount++;
+        const result = gradeAnswer(sess.questions[ans.questionIndex], ans.answer);
+        sess.answers[userId][ans.questionIndex] = {
+          answer: ans.answer,
+          timeMs: ans.timeMs || 0,
+          correct: result.correct,
+          points: result.points,
+        };
+      }
+
+      sess.finishCount++;
+      return true;
+    });
+
+    if (!session) return;
+
     const connectedCount = session.participants.filter((p) => p.connected).length;
     const finisherName = session.participants.find((p) => p.userId === userId)?.displayName || userId;
     console.log(`\x1b[35m🎮 Live\x1b[0m   \x1b[2m${finisherName}\x1b[0m finished session \x1b[1m${data.pin}\x1b[0m  \x1b[2m(${session.finishCount}/${connectedCount} done)\x1b[0m`);
 
-    await saveSession(data.pin, session);
     socket.emit('answer_received', { finished: true });
 
     if (session.teacherSocketId) {

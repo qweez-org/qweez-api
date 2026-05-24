@@ -15,7 +15,7 @@ const router = Router();
 function sanitizeCsvCell(value: string | number | null | undefined): string {
   const str = String(value ?? '');
   // Escape values that start with formula-triggering characters
-  if (/^[=+\-@\t\r]/.test(str)) {
+  if (/^[=+\-@\t\r\n]/.test(str)) {
     return `'${str}`;
   }
   // Wrap in quotes if it contains commas or quotes
@@ -64,7 +64,8 @@ router.get('/classes/:classId/export/grades', auth, authorize('teacher'), valida
     const csv = [header, ...rows].join('\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="gradebook-${req.params.classId}.csv"`);
+    const safeClassId = req.params.classId.replace(/[^a-fA-F0-9]/g, '');
+    res.setHeader('Content-Disposition', `attachment; filename="gradebook-${safeClassId}.csv"`);
     res.send(csv);
   } catch (error) {
     res.status(500).json({ message: 'Failed to export grades' });
@@ -105,7 +106,8 @@ router.get('/quizzes/:quizId/export/results', auth, authorize('teacher'), valida
     const csv = [header, ...rows].join('\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="quiz-results-${req.params.quizId}.csv"`);
+    const safeQuizId = req.params.quizId.replace(/[^a-fA-F0-9]/g, '');
+    res.setHeader('Content-Disposition', `attachment; filename="quiz-results-${safeQuizId}.csv"`);
     res.send(csv);
   } catch (error) {
     res.status(500).json({ message: 'Failed to export quiz results' });

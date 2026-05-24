@@ -7,13 +7,13 @@ if (!process.env.JWT_SECRET) {
   process.exit(1);
 }
 
-if ((process.env.CORS_ORIGIN || '').trim() === '*') {
-  console.error('❌ FATAL: CORS_ORIGIN cannot be "*". Provide a comma-separated allowlist of origins.');
+if ((process.env.CORS_ORIGIN || '').includes('*')) {
+  console.error('❌ FATAL: CORS_ORIGIN cannot contain "*". Provide a comma-separated allowlist of origins.');
   process.exit(1);
 }
 
 export const env = {
-  NODE_ENV: process.env.NODE_ENV || 'development',
+  NODE_ENV: process.env.NODE_ENV || 'production',
   PORT: parseInt(process.env.PORT || '5000', 10),
   MONGODB_URI: process.env.MONGODB_URI || 'mongodb://localhost:27017/qweez',
   JWT_SECRET: process.env.JWT_SECRET,

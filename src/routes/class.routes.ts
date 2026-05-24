@@ -137,26 +137,33 @@ router.delete('/:classId', auth, authorize('teacher'), async (req: AuthRequest, 
         const topics = await Topic.find({ classId: cls._id }, null, { session: dbSession });
         const topicIds = topics.map((t) => t._id);
 
-        // Get all quizzes under those topics
-        const { Quiz } = await import('../models/Quiz.js');
-        const { Question } = await import('../models/Question.js');
-        const { Attempt } = await import('../models/Attempt.js');
-        const { Answer } = await import('../models/Answer.js');
+        if (topicIds.length > 0) {
+          // Get all quizzes under those topics
+          const { Quiz } = await import('../models/Quiz.js');
+          const { Question } = await import('../models/Question.js');
+          const { Attempt } = await import('../models/Attempt.js');
+          const { Answer } = await import('../models/Answer.js');
+
+          const quizzes = await Quiz.find({ topicId: { $in: topicIds } }, null, { session: dbSession });
+          const quizIds = quizzes.map((q) => q._id);
+
+          if (quizIds.length > 0) {
+            // Get all attempts under those quizzes
+            const attempts = await Attempt.find({ quizId: { $in: quizIds } }, null, { session: dbSession });
+            const attemptIds = attempts.map((a) => a._id);
+
+            if (attemptIds.length > 0) {
+              await Answer.deleteMany({ attemptId: { $in: attemptIds } }, { session: dbSession });
+            }
+            await Attempt.deleteMany({ quizId: { $in: quizIds } }, { session: dbSession });
+            await Question.deleteMany({ quizId: { $in: quizIds } }, { session: dbSession });
+          }
+          await Quiz.deleteMany({ topicId: { $in: topicIds } }, { session: dbSession });
+        }
+
         const { TeacherAssignment } = await import('../models/TeacherAssignment.js');
         const { Notification } = await import('../models/Notification.js');
 
-        const quizzes = await Quiz.find({ topicId: { $in: topicIds } }, null, { session: dbSession });
-        const quizIds = quizzes.map((q) => q._id);
-
-        // Get all attempts under those quizzes
-        const attempts = await Attempt.find({ quizId: { $in: quizIds } }, null, { session: dbSession });
-        const attemptIds = attempts.map((a) => a._id);
-
-        // Cascade delete (bottom-up)
-        await Answer.deleteMany({ attemptId: { $in: attemptIds } }, { session: dbSession });
-        await Attempt.deleteMany({ quizId: { $in: quizIds } }, { session: dbSession });
-        await Question.deleteMany({ quizId: { $in: quizIds } }, { session: dbSession });
-        await Quiz.deleteMany({ topicId: { $in: topicIds } }, { session: dbSession });
         await TeacherAssignment.deleteMany({ classId: cls._id }, { session: dbSession });
         await Notification.deleteMany({ classId: cls._id }, { session: dbSession });
         await Membership.deleteMany({ classId: cls._id }, { session: dbSession });

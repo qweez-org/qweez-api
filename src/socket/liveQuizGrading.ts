@@ -73,9 +73,18 @@ export function gradeAnswer(question: IQuestion, answerText: string): { correct:
 
 export async function endQuizSession(session: LiveSession, pin: string, io: SocketIOServer) {
   if (session.status === 'finished') return;
+  
+  // Ensure we only process this once atomically via MongoDB
+  const updatedQuiz = await Quiz.findOneAndUpdate(
+    { _id: session.quizId, status: { $ne: 'finished' } },
+    { status: 'finished' }
+  );
+  if (!updatedQuiz) {
+    return; // Already processed by another request
+  }
+
   session.status = 'finished';
   console.log(`\x1b[35m🎮 Live\x1b[0m   Session \x1b[1m${pin}\x1b[0m ended  \x1b[2m(${session.participants.length} participants)\x1b[0m`);
-  Quiz.findByIdAndUpdate(session.quizId, { status: 'finished' }).catch((e) => console.error('Failed to update quiz status to finished:', e));
 
   const leaderboard = buildLeaderboard(session);
 

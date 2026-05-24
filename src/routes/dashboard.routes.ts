@@ -36,13 +36,24 @@ router.get('/stats', auth, async (req: AuthRequest, res: Response): Promise<void
       .sort({ submittedAt: -1 })
       .limit(10);
 
-    const quizCountPerClass = await Promise.all(
-      classes.map(async (cls) => {
-        const ct = await Topic.find({ classId: cls._id });
-        const count = await Quiz.countDocuments({ topicId: { $in: ct.map((t) => t._id) } });
-        return { className: cls.name, classId: cls._id, quizCount: count };
-      })
-    );
+    const topicsForClasses = await Topic.find({ classId: { $in: classes.map((c) => c._id) } });
+    const topicIdsForClasses = topicsForClasses.map((t) => t._id);
+    
+    const counts = await Quiz.aggregate([
+      { $match: { topicId: { $in: topicIdsForClasses } } },
+      { $group: { _id: '$topicId', count: { $sum: 1 } } }
+    ]);
+    
+    const quizCountMap = new Map();
+    for (const c of counts) {
+      quizCountMap.set(c._id.toString(), c.count);
+    }
+
+    const quizCountPerClass = classes.map((cls) => {
+      const clsTopics = topicsForClasses.filter((t) => t.classId.toString() === cls._id.toString());
+      const count = clsTopics.reduce((sum, t) => sum + (quizCountMap.get(t._id.toString()) || 0), 0);
+      return { className: cls.name, classId: cls._id, quizCount: count };
+    });
 
     res.json({
       stats: { classCount: allClassIds.length, topicCount: topics.length, quizCount: quizzes.length, studentCount, pendingCount },
