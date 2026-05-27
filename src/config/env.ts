@@ -31,6 +31,5 @@ export const env = {
 };
 
 if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test' && !env.REDIS_URL) {
-  console.error('❌ FATAL: REDIS_URL is required outside development for multi-instance Socket.IO.');
-  process.exit(1);
+  console.warn('⚠️ WARNING: No REDIS_URL set. Socket.IO will use in-memory storage (single-instance fallback).');
 }
