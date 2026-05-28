@@ -21,18 +21,22 @@ const wantsCookieRefresh = (req: AuthRequest): boolean => {
 
 const setRefreshCookie = (res: Response, refreshToken: string): void => {
   const maxAgeMs = 30 * 24 * 60 * 60 * 1000;
+  const isProd = env.NODE_ENV === 'production';
   res.cookie(env.REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
     httpOnly: true,
-    secure: env.REFRESH_TOKEN_COOKIE_SECURE,
-    sameSite: 'lax',
+    secure: isProd ? true : env.REFRESH_TOKEN_COOKIE_SECURE,
+    sameSite: isProd ? 'none' : 'lax',
     path: '/api/auth/refresh',
     maxAge: maxAgeMs,
   });
 };
 
 const clearRefreshCookie = (res: Response): void => {
+  const isProd = env.NODE_ENV === 'production';
   res.clearCookie(env.REFRESH_TOKEN_COOKIE_NAME, {
     path: '/api/auth/refresh',
+    secure: isProd ? true : env.REFRESH_TOKEN_COOKIE_SECURE,
+    sameSite: isProd ? 'none' : 'lax',
   });
 };
 
