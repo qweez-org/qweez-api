@@ -86,8 +86,9 @@ router.post('/register', validate(registerSchema), async (req: AuthRequest, res:
     }
 
     res.status(201).json({ accessToken, refreshToken, user });
-  } catch (error) {
-    res.status(500).json({ message: 'Registration failed' });
+  } catch (error: any) {
+    console.error('REGISTRATION ERROR:', error);
+    res.status(500).json({ message: error.message || 'Registration failed' });
   }
 });
 
