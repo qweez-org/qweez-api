@@ -345,7 +345,7 @@ const createQuestionSchema = Joi.object({
       text: Joi.string().required(),
       isCorrect: Joi.boolean().required(),
     })
-  ).default([]),
+  ).unique((a, b) => a.text.trim().toLowerCase() === b.text.trim().toLowerCase()).default([]),
 });
 
 router.post('/:quizId/questions', auth, authorize('teacher'), validateObjectIdParam('quizId'), validate(createQuestionSchema), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -397,7 +397,7 @@ const updateQuestionSchema = Joi.object({
       text: Joi.string().required(),
       isCorrect: Joi.boolean().required(),
     })
-  ),
+  ).unique((a, b) => a.text.trim().toLowerCase() === b.text.trim().toLowerCase()),
 });
 
 router.patch(
